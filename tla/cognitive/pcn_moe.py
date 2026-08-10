@@ -83,12 +83,16 @@ class MoEPCNStack:
             # 原型路由：距离最小者胜（竞争更直接，防自由能信号不具判别性）
             d = torch.stack([torch.norm(x - p) for p in self.proto])
             r = torch.softmax(-d, dim=0)
+            # 硬路由学习也必须用原型距离 argmin（用 fe 是 bug：fe 不具判别性，
+            # 专家学习永远收不到分离信号——MoE 终审发现）
+            hard_idx = torch.argmin(d)
         else:
             r = torch.softmax(-fe / 1.0, dim=0)                   # 软路由（自由能低者胜）
+            hard_idx = torch.argmin(fe)
         # 硬路由主导学习（防 MoE 对称性：两专家学成一样，路由卡 0.5）：
         # 赢者 one-hot 为主 + 20% 软路由探索（防死专家）
         onehot = torch.zeros_like(r)
-        onehot[torch.argmin(fe)] = 1.0
+        onehot[hard_idx] = 1.0
         self.r_learn = 0.8 * onehot + 0.2 * r
         # 共享层误差 e_1 = μ_1 − 混合顶层预测
         mix_p_1 = sum(torch.tanh(ex["W_up"] @ ex["mu"] + ex["b_up"]) * r[e]

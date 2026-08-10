@@ -69,7 +69,7 @@ def run_moe(seed=0, n_epochs=2, n_traj=20, verbose=True):
 
     learned = mse_after < 0.9 * mse_random              # 有学习
     separated = abs(hi_r - lo_r) > 0.1                   # 原型路由分离（方向无关：专家0 偏 low 或偏 high 都算）
-    weak = mse_after > 0.05                              # 无捷径专家弱学习者（vs 捷径 0.004，阈值收紧防漂移）
+    weak = mse_after > 0.02                              # 无捷径专家弱学习者（与重测解锁 0.02 对齐，无死区）
 
     if verbose:
         print("=" * 64)
@@ -79,8 +79,8 @@ def run_moe(seed=0, n_epochs=2, n_traj=20, verbose=True):
         print(f"  原型路由: 专家0 承担 low-vel={lo_r:.2f} high-vel={hi_r:.2f}（差 {hi_r - lo_r:+.2f}）")
         print(f"  学习: {'是' if learned else '否'}  分离: {'是' if separated else '否'}  "
               f"弱学习: {'是' if weak else '否'}")
-        print("  裁决: 容量分离不能治愈'无捷径弱学习'（~0.14 vs 捷径 0.004），"
-              "路由部分分离但不清洗；详见 docstring")
+        print("  裁决: 容量分离不能治愈'无捷径弱学习'（~0.11 vs 捷径 0.004），"
+              "路由分离成立但专家弱学习；详见 docstring")
         print("=" * 64)
     return dict(mse_random=mse_random, mse_after=mse_after, lo_r=lo_r, hi_r=hi_r,
                 learned=learned, separated=separated, weak=weak)

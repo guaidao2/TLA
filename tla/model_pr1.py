@@ -62,8 +62,9 @@ class TLAPR1Model:
         self.ltc.h = h_ctx.clone()
         return self._core_step(s_t, s_next)
 
-    # ---- 推理（会琢磨：残差迭代精化直接改输出）----
-    def infer(self, obs, reset_energy=True, max_steps=None):
+    # ---- 推理（会琢磨：残差迭代精化直接改输出；琢磨失败→回退首猜=瞎猜，双过程系统2→系统1）----
+    def infer(self, obs, reset_energy=True, max_steps=None, fallback=True,
+              fallback_conf=0.35, drift_cap=0.15):
         if reset_energy:
             self.energy.reset()
         h = self.ltc.forward(obs)
@@ -73,10 +74,10 @@ class TLAPR1Model:
         steps, max_err, prev_err = 0, 0.0, float("inf")
         prev_pred, err_first = None, None
         doubtful = False
+        guess = pcn.readout(x).detach()          # 系统1：摊销首猜（瞎猜基线）
         if budget <= 0:
-            pred = pcn.readout(x).detach()
-            return pred, dict(steps=0, max_err=0.0, doubtful=False,
-                              suppressed=False, confidence=0.0)
+            return guess, dict(steps=0, max_err=0.0, doubtful=False,
+                               suppressed=False, confidence=0.0, fell_back=True)
         for k in range(1, budget + 1):
             max_err = pcn.settle_step(x, target=None)
             pred = pcn.readout(x).detach()
@@ -98,9 +99,19 @@ class TLAPR1Model:
         tol_final = max(self.infer_tol, (self.tol_rel * err_first) if err_first else 0)
         if steps >= budget and max_err >= tol_final:
             doubtful = True
-        pred = pcn.readout(x).detach()
+        reasoned = pcn.readout(x).detach()
         confidence = float(min(max(1.0 - max_err / max(err_first, 1e-9), 0.0), 1.0))
         if confidence < 0.35:
             doubtful = True
+        # 琢磨失败判定（双过程：系统2失败 → 系统1兜底=瞎猜）：
+        #  ① 琢磨没进展（confidence 低，误差没降下来）；
+        #  ② 琢磨想歪了（输出偏离首猜过多 = 过度精化）。
+        drift = float(torch.norm(reasoned - guess).item())
+        fell_back = False
+        if fallback and (confidence < fallback_conf or drift > drift_cap):
+            pred = guess                                  # 瞎猜（直觉兜底）
+            fell_back = True
+        else:
+            pred = reasoned
         return pred, dict(steps=steps, max_err=max_err, doubtful=doubtful,
-                          suppressed=False, confidence=confidence)
+                          suppressed=False, confidence=confidence, fell_back=fell_back)

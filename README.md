@@ -90,8 +90,5 @@ examples/train_toy.py        # 训练 + 判据报告入口
 
 ## License
 
-MIT（与 NLA/FakeAGI 系一致）。本仓库**不设远程**，代码/文档仅本地维护。
+MIT（与 NLA/FakeAGI 系一致）。
 
----
-
-*判据已锁死。负结果/降级分支是判据的一部分，同样锁死。*

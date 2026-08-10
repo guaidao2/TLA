@@ -4,6 +4,8 @@
 > 作者：guaidao2 · coolmoon · 玄幕安全团队 / 墨渊安全实验室
 > 状态：**研究原型（research prototype）**——机制层判据全部跑完，负结果如实记录
 
+📄 **研究论文（完整格式 + 详细数学推导）**：[docs/TLA_paper.md](docs/TLA_paper.md)（玄幕安全团队 guaidao2 · coolmoon）
+
 ---
 
 ## 这是什么

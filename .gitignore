@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Reasonix 工具状态（不入库）
+.reasonix/
+
+# 本地产物
+*.pt
+*.pth
+*.npz

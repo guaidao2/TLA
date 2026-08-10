@@ -12,7 +12,8 @@ import torch
 
 
 class PCNStack:
-    def __init__(self, dims, out_dim, lr_inf=0.1, prior=0.0, mu_max=5.0, seed=None):
+    def __init__(self, dims, out_dim, lr_inf=0.1, prior=0.0, mu_max=5.0,
+                 use_lin_shortcut=True, seed=None):
         assert len(dims) >= 2
         self.dims = dims
         self.out_dim = out_dim
@@ -27,7 +28,9 @@ class PCNStack:
                    for l in range(1, self.L + 1)]
         self.bs = [torch.zeros(dims[l - 1]) for l in range(1, self.L + 1)]
         self.W_out = torch.randn(out_dim, dims[-1], generator=gen) / dims[-1] ** 0.5
-        self.W_lin = torch.randn(out_dim, dims[0], generator=gen) * 0.1   # 输入线性捷径
+        self.use_lin = use_lin_shortcut
+        self.W_lin = (torch.randn(out_dim, dims[0], generator=gen) * 0.1
+                      if use_lin_shortcut else torch.zeros(out_dim, dims[0]))
         self.b_out = torch.zeros(out_dim)
         self.mus = [torch.zeros(d) for d in dims]
         self._gate = None               # 容量门（mask·gain 向量），由 CapacityManager 注入
@@ -58,7 +61,6 @@ class PCNStack:
         p_out = self.W_out @ self._gated_top() + self.W_lin @ mu[0] + self.b_out
         e_out = (target - p_out) if target is not None else None
         return e, e_out, p_out, a, p
-
     def max_err(self, e):
         return max(torch.max(torch.abs(ee)).item() for ee in e)
 
@@ -104,7 +106,8 @@ class PCNStack:
             self.bs[l - 1] = self.bs[l - 1] + lr * delta
         if e_out is not None:
             self.W_out = (1.0 - lr * wd) * self.W_out + lr * torch.outer(e_out, self._gated_top())
-            self.W_lin = (1.0 - lr * wd) * self.W_lin + lr * torch.outer(e_out, self.mus[0])
+            if self.use_lin:    # 无捷径模式：W_lin 恒 0（输出完全依赖精化后的 μ，循环承重）
+                self.W_lin = (1.0 - lr * wd) * self.W_lin + lr * torch.outer(e_out, self.mus[0])
             self.b_out = self.b_out + lr * e_out
             return float(torch.mean(e_out ** 2).item())
         return None

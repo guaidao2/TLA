@@ -11,10 +11,12 @@ import torch
 
 
 class VariableSpeedWorld:
-    def __init__(self, dt_range=(0.05, 0.3), noise=0.02, scale=5.0, seed=0):
+    def __init__(self, dt_range=(0.05, 0.3), noise=0.02, scale=5.0, seed=0,
+                 mode="spring"):
         self.dt_range = dt_range
         self.noise = noise
         self.scale = scale
+        self.mode = mode            # "spring"（弹簧振荡）| "drift"（恒定速度漂移）
         self.gen = torch.Generator().manual_seed(seed)
 
     def _rand(self, *s):
@@ -23,6 +25,10 @@ class VariableSpeedWorld:
     def _omega(self, speed_range):
         return self._rand(1).item() * (speed_range[1] - speed_range[0]) + speed_range[0]
 
+    def _speed(self, speed_range):
+        v = self._rand(1).item() * (speed_range[1] - speed_range[0]) + speed_range[0]
+        return v * (1.0 if self._rand(1).item() < 0.5 else -1.0)
+
     def trajectory(self, T, speed_range):
         pos = (self._rand(1).item() - 0.5) * 2.0 * 3.0      # 初始位置 ±3
         vel = (self._rand(1).item() - 0.5) * 2.0 * 3.0      # 初始速度 ±3
@@ -30,10 +36,15 @@ class VariableSpeedWorld:
         rows = []
         for _ in range(T):
             dt = self._rand(1).item() * (self.dt_range[1] - self.dt_range[0]) + self.dt_range[0]
-            if self._rand(1).item() < 0.05:                 # 频率 regime 切换（变速率）
-                w = self._omega(speed_range)
-            vel = vel - (w ** 2) * pos * dt + (self._rand(1).item() - 0.5) * 2.0 * self.noise
-            pos = pos + vel * dt
+            if self.mode == "spring":
+                if self._rand(1).item() < 0.05:             # 频率 regime 切换（变速率）
+                    w = self._omega(speed_range)
+                vel = vel - (w ** 2) * pos * dt + (self._rand(1).item() - 0.5) * 2.0 * self.noise
+                pos = pos + vel * dt
+            else:                                           # drift：恒定速度（不同动力学）
+                if self._rand(1).item() < 0.05:             # 速度 regime 切换
+                    vel = self._speed(speed_range)
+                pos = pos + vel * dt
             rows.append([pos / self.scale, vel / self.scale, dt])
         return torch.tensor(rows, dtype=torch.float32)
 

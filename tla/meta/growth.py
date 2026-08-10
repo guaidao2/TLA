@@ -11,14 +11,15 @@ from tla.meta.importance import ImportanceTracker
 
 class CapacityManager:
     def __init__(self, n_units, calib_min=0.3, calib_window=100,
-                 prune_threshold=1e-3, grow_thresholds=(0.3, 0.3, 0.3),
+                 prune_threshold=1e-6, prune_rel=0.1, grow_thresholds=(0.3, 0.3, 0.3),
                  prune_interval=200, grow_interval=200):
         self.n = n_units
         self.mask = torch.ones(n_units, dtype=torch.bool)
         self.gain = torch.ones(n_units)
-        self.age = torch.zeros(n_units)
+        self.age = torch.full((n_units,), float(calib_window))  # 既有单元初始即已校准（gain=1.0）
         self.calib_min, self.calib_window = calib_min, calib_window
         self.prune_threshold = prune_threshold
+        self.prune_rel = prune_rel      # 相对阈值：importance < prune_rel×均值 才剪（尺度无关）
         self.eps_e, self.eps_n, self.eps_E = grow_thresholds
         self.prune_interval, self.grow_interval = prune_interval, grow_interval
         self.tick = 0
@@ -37,10 +38,15 @@ class CapacityManager:
 
     def maybe_prune(self):
         if self.tick % self.prune_interval == 0:
-            dead = self.mask & self.imp.prune_mask(self.prune_threshold)
-            self.mask[dead] = False
-            self.gain[dead] = 0.0
-            self.last_pruned = int(dead.sum().item())
+            # 相对阈值（防绝对阈值与数据尺度不匹配导致批量误剪）：
+            # importance < max(绝对下限, prune_rel × 活跃单元均值) 才剪
+            active_mean = self.imp.imp[self.mask].mean().item() if self.mask.any() else 0.0
+            thr = max(self.prune_threshold, self.prune_rel * active_mean)
+            cand = self.mask & (self.imp.imp < thr)
+            if cand.sum() <= 0.3 * self.mask.sum():   # 防级联：单次最多剪 30%
+                self.mask[cand] = False
+                self.gain[cand] = 0.0
+                self.last_pruned = int(cand.sum().item())
         return self.last_pruned
 
     def maybe_grow(self, avg_error, novelty, energy_level):

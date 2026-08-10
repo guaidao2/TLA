@@ -70,6 +70,6 @@ def test_cls_replay_buffer_works():
     buf = ReplayBuffer(capacity=64, replay_prob=0.0, batch=4, seed=0)
     for traj in trajs:
         for t in range(len(traj) - 1):
-            buf.push(traj[t], traj[t + 1], surprise=1.0)
+            buf.push(traj[t], traj[t + 1], torch.zeros(16), surprise=1.0)
     assert len(buf) == sum(len(tr) - 1 for tr in trajs)
     assert buf.items[0][0].shape == torch.Size([3])

@@ -29,14 +29,16 @@ def collect(model, trajs, noise=0.0, seed=0):
             torch.tensor(doubts, dtype=torch.bool))
 
 
-def run_calibration(seed=0, verbose=True):
+def run_calibration(seed=0, n_epochs=3, n_traj=40, T=50, verbose=True):
     world = VariableSpeedWorld(seed=seed)
-    train = world.trajectories(n_traj=40, T=50, speed_range=(0.8, 3.0))
-    indist = world.trajectories(n_traj=6, T=30, speed_range=(1.0, 2.0), seed=7)
-    unseen = world.trajectories(n_traj=6, T=30, speed_range=(4.0, 5.0), seed=999)
+    train = world.trajectories(n_traj=n_traj, T=T, speed_range=(0.8, 3.0))
+    indist = world.trajectories(n_traj=max(4, n_traj // 6), T=30,
+                                speed_range=(1.0, 2.0), seed=7)
+    unseen = world.trajectories(n_traj=max(4, n_traj // 6), T=30,
+                                speed_range=(4.0, 5.0), seed=999)
 
     model = TLAModel(obs_dim=3, out_dim=2, seed=seed)
-    for _ in range(3):
+    for _ in range(n_epochs):
         for traj in train:
             model.reset()
             for t in range(len(traj) - 1):

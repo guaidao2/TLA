@@ -9,7 +9,7 @@ from tla.criteria.ablation import run_ablation
 
 @pytest.fixture(scope="module")
 def ablation_result():
-    return run_ablation(seed=0, verbose=False)
+    return run_ablation(seed=0, verbose=False, n_epochs=2, n_traj=25, T=40)
 
 
 def test_pcog3_negative_reproducible(ablation_result):

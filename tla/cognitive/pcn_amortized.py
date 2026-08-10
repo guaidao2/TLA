@@ -80,17 +80,56 @@ class AmortizedResidualPCN:
         return pred_base + res
 
     # ---- 学习（分工写死：首猜对 e_base，残差对 e_total；无 BP）----
-    def learn_step(self, x, target, lr=0.01, settle_steps=4, wd=1e-4):
+    def learn_step(self, x, target, lr=0.01, settle_steps=4, wd=1e-4,
+                   freeze_base=False):
         self.settle(x, target, steps=settle_steps)
         e_0, e_1, e_out, pred_base, res, pred_total = self.errors(x, target)
         e_base = target - pred_base                              # 首猜自己的误差
         # 摊销首猜：只按自己的误差更新（残差救不了它 → 必须自己学，防摆烂）
-        self.W_base = (1.0 - lr * wd) * self.W_base + lr * torch.outer(e_base, x)
-        self.b_base = self.b_base + lr * e_base
+    # ---- 突触巩固（EWC 式）：A 训练累计 importance，B 训练按重要性拉回 A 状态 ----
+    def start_consolidation(self):
+        self._imp = {k: torch.zeros_like(v) for k, v in self._params().items()}
+
+    def finalize_consolidation(self):
+        """快照 A 训练后的权重为参考（须在 B 训练前调用）；importance 归一化到 [0,1]（防无界累加）。"""
+        self._ref = {k: v.clone() for k, v in self._params().items()}
+        for k in self._imp:
+            mx = self._imp[k].max()
+            if mx > 0:
+                self._imp[k] = self._imp[k] / mx
+
+    def _params(self):
+        return dict(W_base=self.W_base, b_base=self.b_base,
+                    W_1=self.W_1, b_1=self.b_1, W_out=self.W_out, b_out=self.b_out)
+
+    # ---- 学习（分工写死：首猜对 e_base，残差对 e_total；无 BP）----
+    def learn_step(self, x, target, lr=0.01, settle_steps=4, wd=1e-4,
+                   freeze_base=False, consolidate=False, protect=False, lam=1.0):
+        self.settle(x, target, steps=settle_steps)
+        e_0, e_1, e_out, pred_base, res, pred_total = self.errors(x, target)
+        e_base = target - pred_base                              # 首猜自己的误差
+        # 摊销首猜：只按自己的误差更新（残差救不了它 → 必须自己学，防摆烂）
+        # freeze_base=True：冻结首猜（遗忘定位诊断用——只让残差通路学新任务）
+        if not freeze_base:
+            self.W_base = (1.0 - lr * wd) * self.W_base + lr * torch.outer(e_base, x)
+            self.b_base = self.b_base + lr * e_base
         # 残差通路：按总误差更新（首猜错 → e_total 大 → 残差有活干，防空转）
         g1 = 1.0 - torch.tanh(self.W_1 @ self.mu_1 + self.b_1) ** 2
         self.W_1 = (1.0 - lr * wd) * self.W_1 + lr * torch.outer(g1 * e_0, self.mu_1)
         self.b_1 = self.b_1 + lr * (g1 * e_0)
         self.W_out = (1.0 - lr * wd) * self.W_out + lr * torch.outer(e_out, self.mu_1)
         self.b_out = self.b_out + lr * e_out
+        # 突触巩固：A 训练时累计每个权重的更新量级（importance=Fisher 式，全局部）
+        if consolidate and hasattr(self, "_imp"):
+            self._imp["W_base"] += torch.outer(e_base, x).abs()
+            self._imp["b_base"] += e_base.abs()
+            self._imp["W_1"] += torch.outer(g1 * e_0, self.mu_1).abs()
+            self._imp["b_1"] += (g1 * e_0).abs()
+            self._imp["W_out"] += torch.outer(e_out, self.mu_1).abs()
+            self._imp["b_out"] += e_out.abs()
+        # 突触巩固：B 训练时按重要性把权重拉回 A 状态（保护重要突触，次要的随便改）
+        if protect and hasattr(self, "_ref"):
+            for k, v in self._params().items():
+                pull = lr * lam * self._imp[k] * (self._ref[k] - v)
+                self.__dict__[k] = v + pull
         return float(torch.mean(e_out ** 2).item())

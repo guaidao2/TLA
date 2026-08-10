@@ -15,7 +15,8 @@ class TLAPR1Model:
     def __init__(self, obs_dim=3, out_dim=2, ltc_hidden=16, hidden=24,
                  seed=0, lr=0.01, lr_inf=0.1, settle_steps=4,
                  infer_max_steps=8, infer_tol=0.02, tol_rel=0.5,
-                 tol_progress=0.05, tol_out=0.005, energy_capacity=20.0):
+                 tol_progress=0.05, tol_out=0.005, energy_capacity=20.0,
+                 lam=1.0):
         self.obs_dim, self.out_dim = obs_dim, out_dim
         self.ltc = LTCCell(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
         self.pcn = AmortizedResidualPCN(dims=[obs_dim + ltc_hidden, hidden],
@@ -27,6 +28,7 @@ class TLAPR1Model:
         self.energy = EnergyBudget(capacity=energy_capacity)
         self.replay = ReplayBuffer(seed=seed + 3)
         self.lr = lr
+        self.lam = lam                     # EWC 突触巩固强度（protect 时用）
         self.settle_steps = settle_steps
         self.infer_max_steps = infer_max_steps
         self.infer_tol = infer_tol
@@ -40,19 +42,24 @@ class TLAPR1Model:
         self.pcn.reset()
 
     # ---- 训练 ----
-    def _core_step(self, s_t, s_next):
+    def _core_step(self, s_t, s_next, freeze_base=False, consolidate=False,
+                   protect=False):
         h = self.ltc.forward(s_t)
         x = torch.cat([s_t, h])
         target = s_next[: self.out_dim]
-        mse = self.pcn.learn_step(x, target, lr=self.lr, settle_steps=self.settle_steps)
+        mse = self.pcn.learn_step(x, target, lr=self.lr, settle_steps=self.settle_steps,
+                                  freeze_base=freeze_base, consolidate=consolidate,
+                                  protect=protect, lam=self.lam)
         p_out = self.pcn.readout(x).detach()
         self_loss = self.self_slot.learn(x, p_out)
         self.scratchpad.write(self.pcn.last_max_err)
         return mse, self_loss
 
-    def train_step(self, s_t, s_next):
+    def train_step(self, s_t, s_next, freeze_base=False, consolidate=False,
+                   protect=False):
         h_in = self.ltc.h.clone()
-        mse, self_loss = self._core_step(s_t, s_next)
+        mse, self_loss = self._core_step(s_t, s_next, freeze_base=freeze_base,
+                                         consolidate=consolidate, protect=protect)
         self.replay.push(s_t, s_next, h_in, float(mse) if mse is not None else 1.0)
         self.replay.maybe_replay(self)
         return mse, self_loss

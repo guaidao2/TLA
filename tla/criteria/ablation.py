@@ -43,17 +43,18 @@ def _train(model, train_trajs, n_epochs=3):
             for t in range(len(traj) - 1):
                 model.train_step(traj[t], traj[t + 1])
 
-
-def run_ablation(seed=0, verbose=True):
+def run_ablation(seed=0, n_epochs=3, n_traj=40, T=50, verbose=True):
     world = VariableSpeedWorld(seed=seed)
-    train = world.trajectories(n_traj=40, T=50, speed_range=(0.8, 3.0))
-    unseen = world.trajectories(n_traj=8, T=40, speed_range=(4.0, 5.0), seed=999)
-    indist = world.trajectories(n_traj=8, T=40, speed_range=(1.0, 2.0), seed=7)
+    train = world.trajectories(n_traj=n_traj, T=T, speed_range=(0.8, 3.0))
+    unseen = world.trajectories(n_traj=max(4, n_traj // 5), T=T - 10,
+                                speed_range=(4.0, 5.0), seed=999)
+    indist = world.trajectories(n_traj=max(4, n_traj // 5), T=T - 10,
+                                speed_range=(1.0, 2.0), seed=7)
 
     r = {}
     for use_lin in (True, False):
         m = TLAModel(obs_dim=3, out_dim=2, seed=seed, use_lin_shortcut=use_lin)
-        _train(m, train)
+        _train(m, train, n_epochs=n_epochs)
         tag = "lin" if use_lin else "nolin"
         r[f"{tag}_unseen_ad"] = eval_mse(m, unseen)
         r[f"{tag}_unseen_f1"] = eval_mse(m, unseen, 1)

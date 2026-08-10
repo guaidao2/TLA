@@ -42,7 +42,8 @@ def test_pcog1_clean_input_few_steps():
 
     med_clean, mean_clean = steps_stats(model)
     _, mean_noisy = steps_stats(model, noisy=True)
-    assert med_clean <= 3, f"干净输入应少步即停，实测 median={med_clean}"
+    assert 1 < med_clean <= 3, \
+        f"干净输入应少步即停（且预注册 ≤1 差距显式存在）: median={med_clean}"
     assert mean_noisy > mean_clean, \
         f"噪声输入应分配更多步（会琢磨的分布签名）: clean_mean={mean_clean:.2f} vs noisy_mean={mean_noisy:.2f}"
 

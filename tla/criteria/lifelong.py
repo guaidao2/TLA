@@ -94,13 +94,16 @@ def run_learn2(seed=0, verbose=True):
     world = VariableSpeedWorld(seed=seed)
     train = world.trajectories(n_traj=30, T=40, speed_range=(0.8, 3.0))
     costs = {}
+    max_steps = 3000
     for tag, hidden in (("h32", (32, 32)), ("h128", (128, 128))):
         m = TLAModel(obs_dim=3, out_dim=2, seed=seed, hidden_dims=hidden)
         t0 = time.time()
-        costs[tag] = steps_to_target(m, train)
+        costs[tag] = steps_to_target(m, train, max_steps=max_steps)
         costs[f"{tag}_sec"] = time.time() - t0
     ratio = costs["h128"] / max(costs["h32"], 1)
-    p_learn2 = ratio < 2.0
+    # 触顶 = 未在预算内达标 → 判据无效（防触顶虚过 <2×）
+    capped = costs["h32"] >= max_steps or costs["h128"] >= max_steps
+    p_learn2 = (not capped) and ratio < 2.0
 
     if verbose:
         print("=" * 64)

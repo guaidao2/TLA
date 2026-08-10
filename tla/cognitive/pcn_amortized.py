@@ -1,0 +1,96 @@
+"""原则一：摊销首猜 + 残差修正（Amortized Residual PCN）。
+
+哲学诊断（文档 §14"捷径悖论"之后）：两个优化器抢同一目标导致分工失序——
+- 有捷径：慢优化器（权重）抢了快优化器（settle）的活 → 琢磨空转（P-COG-3 负结果）；
+- 无捷径：快优化器稀释了慢优化器的信号 → 弱学习（~0.11 vs 0.004）。
+
+本实现把分工写死：
+- **摊销首猜** W_base@x：对"自己的首猜误差" e_base = target − pred_base 负责——
+  学得快（线性通路，局部更新不被 settle 稀释），提供学习强度；
+- **残差通路**（无捷径 PCN，经 settle）：对"总误差" e_total = target − pred_total 负责——
+  学"首猜不够用的部分"（上下文相关的 Δ），输出为加性残差，settle 对输出有直接贡献，
+  琢磨在构造上不可旁路；
+- 最终输出 pred = pred_base + Δ（Δ 经推理环迭代精化 → 自适应深度真实影响输出）。
+
+分工防摆烂：W_base 只按 e_base 更新（残差救不了它，必须自己学）；残差通路只按 e_total
+更新（首猜错时 e_total 大 → 残差有活干，不会空转）。
+"""
+import torch
+
+
+class AmortizedResidualPCN:
+    def __init__(self, dims, out_dim, lr_inf=0.1, prior=0.0, mu_max=5.0, seed=None):
+        """dims = [in, hidden]（单隐藏层残差通路）。"""
+        assert len(dims) == 2
+        self.dims = dims
+        self.out_dim = out_dim
+        self.lr_inf = lr_inf
+        self.prior = prior
+        self.mu_max = mu_max
+        gen = torch.Generator().manual_seed(seed) if seed is not None else None
+        g = 1.0 / dims[1] ** 0.5
+        # 摊销首猜（学得快，学习强度来源）
+        self.W_base = torch.randn(out_dim, dims[0], generator=gen) / dims[0] ** 0.5
+        self.b_base = torch.zeros(out_dim)
+        # 残差通路：隐藏层预测输入（重建）+ 顶层读出残差
+        self.W_1 = torch.randn(dims[0], dims[1], generator=gen) * g
+        self.b_1 = torch.zeros(dims[0])
+        self.W_out = torch.randn(out_dim, dims[1], generator=gen) / dims[1] ** 0.5
+        self.b_out = torch.zeros(out_dim)
+        self.mu_1 = torch.zeros(dims[1])
+        self.last_max_err = 0.0
+
+    def reset(self):
+        self.mu_1 = torch.zeros_like(self.mu_1)
+
+    # ---- 误差 ----
+    def errors(self, x, target=None):
+        pred_base = self.W_base @ x + self.b_base
+        p_0 = torch.tanh(self.W_1 @ self.mu_1 + self.b_1)      # 隐藏层重建输入
+        e_0 = x - p_0                                          # 输入层重建误差
+        e_1 = self.mu_1 - self.prior                           # 顶层 prior 误差
+        res = self.W_out @ self.mu_1 + self.b_out              # 残差读出
+        pred_total = pred_base + res
+        e_out = (target - pred_total) if target is not None else None
+        return e_0, e_1, e_out, pred_base, res, pred_total
+
+    def max_err(self, e_0, e_1):
+        return max(torch.max(torch.abs(e_0)).item(), torch.max(torch.abs(e_1)).item())
+
+    # ---- 推理（settle 一步：残差通路精化 μ，直接改输出残差）----
+    def settle_step(self, x, target=None, lr_inf=None):
+        lr = lr_inf if lr_inf is not None else self.lr_inf
+        e_0, e_1, e_out, _, _, _ = self.errors(x, target)
+        g1 = 1.0 - torch.tanh(self.W_1 @ self.mu_1 + self.b_1) ** 2
+        grad = e_1 - self.W_1.T @ (g1 * e_0)
+        if e_out is not None:
+            grad = grad - self.W_out.T @ e_out                  # target 注入（残差通路学总误差）
+        self.mu_1 = (self.mu_1 - lr * grad).clamp(-self.mu_max, self.mu_max)
+        self.last_max_err = self.max_err(e_0, e_1)
+        return self.last_max_err
+
+    def settle(self, x, target=None, steps=4):
+        last = 0.0
+        for _ in range(steps):
+            last = self.settle_step(x, target)
+        return last
+
+    def readout(self, x):
+        _, _, _, pred_base, res, _ = self.errors(x)
+        return pred_base + res
+
+    # ---- 学习（分工写死：首猜对 e_base，残差对 e_total；无 BP）----
+    def learn_step(self, x, target, lr=0.01, settle_steps=4, wd=1e-4):
+        self.settle(x, target, steps=settle_steps)
+        e_0, e_1, e_out, pred_base, res, pred_total = self.errors(x, target)
+        e_base = target - pred_base                              # 首猜自己的误差
+        # 摊销首猜：只按自己的误差更新（残差救不了它 → 必须自己学，防摆烂）
+        self.W_base = (1.0 - lr * wd) * self.W_base + lr * torch.outer(e_base, x)
+        self.b_base = self.b_base + lr * e_base
+        # 残差通路：按总误差更新（首猜错 → e_total 大 → 残差有活干，防空转）
+        g1 = 1.0 - torch.tanh(self.W_1 @ self.mu_1 + self.b_1) ** 2
+        self.W_1 = (1.0 - lr * wd) * self.W_1 + lr * torch.outer(g1 * e_0, self.mu_1)
+        self.b_1 = self.b_1 + lr * (g1 * e_0)
+        self.W_out = (1.0 - lr * wd) * self.W_out + lr * torch.outer(e_out, self.mu_1)
+        self.b_out = self.b_out + lr * e_out
+        return float(torch.mean(e_out ** 2).item())

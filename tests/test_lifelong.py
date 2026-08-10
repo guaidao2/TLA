@@ -36,6 +36,7 @@ def test_plearn1_catastrophic_forgetting_baseline(learn1):
 
 
 def test_plearn2_scale_cost_not_collapse(learn2):
-    """P-LEARN-2：hidden 32→128 每规则学习成本 <2×。"""
-    assert learn2["ratio"] < 2.0, f"放大成本不应崩溃: 比率={learn2['ratio']:.2f}"
+    """P-LEARN-2：hidden 32→128 每规则学习成本 <2×（且未触顶，防虚过）。"""
+    assert not learn2["capped"], "任一规模触顶(3000)未达标 → 判据无效，不得虚过"
+    assert learn2["p_learn2"], f"放大成本不应崩溃: 比率={learn2['ratio']:.2f}"
     assert learn2["cost_h32"] > 0

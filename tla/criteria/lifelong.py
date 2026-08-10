@@ -115,7 +115,7 @@ def run_learn2(seed=0, verbose=True):
         print(f"  P-LEARN-2: {'PASS' if p_learn2 else 'FAIL'}")
         print("=" * 64)
     return dict(cost_h32=costs["h32"], cost_h128=costs["h128"],
-                ratio=ratio, p_learn2=p_learn2)
+                ratio=ratio, capped=capped, p_learn2=p_learn2)
 
 
 if __name__ == "__main__":

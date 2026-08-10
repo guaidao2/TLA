@@ -96,7 +96,7 @@ def run_diagnose(seed=0, verbose=True):
         print("=" * 68)
         print("遗忘定位诊断（B 训练冻结 W_base → A 保留率）")
         print("=" * 68)
-        print(f"  不冻结(现状): A {r['retention_nr'] and '—'} 保留率={r['retention'] * 100:.1f}%  "
+        print(f"  不冻结(现状): A 保留率={r['retention'] * 100:.1f}%  "
               f"(无重放 {r['retention_nr'] * 100:.1f}%)")
         print(f"  冻结 W_base:  A {a0:.4f}→{a1:.4f}  保留率={retention_frozen * 100:.1f}%")
         if retention_frozen >= 0.95:
@@ -147,16 +147,22 @@ def run_ewc(seed=0, lam=10, verbose=True):
     retention = a0_r / max(a1_r, 1e-9)
     retention_nr = a0_nr / max(a1_nr, 1e-9)
     replay_helps = a1_r < a1_nr
-    p_learn1 = retention >= 0.95                # 主判据：有重放保留率 ≥95%
-    # 保持判据：学习强度 <0.02
+    p_learn1 = retention >= 0.95 and retention > retention_nr  # 主判据+优于无保护对照
+    # 保持判据：学习强度（分布内 <0.02）——走完整 A→finalize→B(protect) 序列（防 EWC 破坏）
     m = TLAPR1Model(obs_dim=3, out_dim=2, seed=seed, lam=lam)
     m.pcn.start_consolidation()
+    m.replay.replay_prob = 0.3
     for _ in range(2):
         for traj in train_a:
             m.reset()
             for t in range(len(traj) - 1):
                 m.train_step(traj[t], traj[t + 1], consolidate=True)
     m.pcn.finalize_consolidation()
+    for _ in range(2):
+        for traj in train_b:
+            m.reset()
+            for t in range(len(traj) - 1):
+                m.train_step(traj[t], traj[t + 1], protect=True)
     mse_indist = eval_mse(m, indist)
     keep_strength = mse_indist < 0.02
 

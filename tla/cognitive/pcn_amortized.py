@@ -79,13 +79,6 @@ class AmortizedResidualPCN:
         _, _, _, pred_base, res, _ = self.errors(x)
         return pred_base + res
 
-    # ---- 学习（分工写死：首猜对 e_base，残差对 e_total；无 BP）----
-    def learn_step(self, x, target, lr=0.01, settle_steps=4, wd=1e-4,
-                   freeze_base=False):
-        self.settle(x, target, steps=settle_steps)
-        e_0, e_1, e_out, pred_base, res, pred_total = self.errors(x, target)
-        e_base = target - pred_base                              # 首猜自己的误差
-        # 摊销首猜：只按自己的误差更新（残差救不了它 → 必须自己学，防摆烂）
     # ---- 突触巩固（EWC 式）：A 训练累计 importance，B 训练按重要性拉回 A 状态 ----
     def start_consolidation(self):
         self._imp = {k: torch.zeros_like(v) for k, v in self._params().items()}

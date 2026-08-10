@@ -21,15 +21,17 @@ def test_pr1_learning_strength_solved(pr1):
 
 
 def test_pr1_thinking_still_negative(pr1):
-    """探针 B/C：琢磨增益仍未成立（困难输入上 settle 迭代无增益甚至负价值）。"""
+    """探针 B/C：琢磨增益仍未成立——锁定原始数值（噪声/未见 ω 增益均为负）。"""
     assert not pr1["p_B"], "琢磨增益应仍未成立（预注册负结果）"
+    assert pr1["gain_n"] < 0.0, f"噪声轴琢磨增益应为负（实测 {pr1['gain_n'] * 100:+.1f}%）"
+    assert pr1["gain_u"] < 0.0, f"未见ω轴琢磨增益应为负（实测 {pr1['gain_u'] * 100:+.1f}%）"
 
 
 def test_pr1_pcog3_retest_guess_best(retest):
-    """P-COG-3 解锁重测：负结果确认——纯首猜（guess）在未见 ω 上最好。"""
+    """P-COG-3 解锁重测：负结果确认——锁定原始数值（纯首猜严格最优）。"""
     assert not retest["p_cog3"], "P-COG-3 重测应仍为负结果"
-    assert retest["mse_guess_u"] <= retest["mse_ad_u"], \
-        "纯首猜应不劣于自适应（琢磨负价值/过度精化）"
+    assert retest["mse_guess_u"] < retest["mse_ad_u"], \
+        f"纯首猜应严格优于自适应: guess={retest['mse_guess_u']:.4f} vs adaptive={retest['mse_ad_u']:.4f}"
 
 
 def test_pr1_plearn1_retest_negative(retest):

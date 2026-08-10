@@ -51,6 +51,8 @@ def run_retest(seed=0, verbose=True):
     p_cog3 = mse_ad_u < 0.9 * mse_f1_u            # 预注册判据：adaptive < 0.9×fixed1
 
     # ---- P-LEARN-1：A(ω0.8-1.5) → B(ω3.5-4.5) 保留率（重放对照）----
+    # 注：重测参数为 2 B-epoch × 20×T25（原 lifelong.py 为 3 epoch × 25×T30）——
+    # 偏差在"宽松"方向（遗忘压力更小），不可能伪造负结果，故裁决方向可信。
     wa = VariableSpeedWorld(seed=seed, mode="spring")
     wb = VariableSpeedWorld(seed=seed + 10, mode="spring")
     train_a = wa.trajectories(n_traj=20, T=25, speed_range=(0.8, 1.5))

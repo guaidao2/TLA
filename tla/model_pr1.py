@@ -63,8 +63,10 @@ class TLAPR1Model:
         return self._core_step(s_t, s_next)
 
     # ---- 推理（会琢磨：残差迭代精化直接改输出；琢磨失败→回退首猜=瞎猜，双过程系统2→系统1）----
-    def infer(self, obs, reset_energy=True, max_steps=None, fallback=True,
-              fallback_conf=0.35, drift_cap=0.15):
+    # fallback 默认 False（opt-in）：保既有判据（pr1/retest/ablation/lifelong/moe）的
+    # "自适应"语义不被静默混入回退——回退实验（pr1_fallback.py）显式传入 fallback=True。
+    def infer(self, obs, reset_energy=True, max_steps=None, fallback=False,
+              fallback_conf=0.35, drift_cap=0.02):
         if reset_energy:
             self.energy.reset()
         h = self.ltc.forward(obs)
@@ -77,7 +79,7 @@ class TLAPR1Model:
         guess = pcn.readout(x).detach()          # 系统1：摊销首猜（瞎猜基线）
         if budget <= 0:
             return guess, dict(steps=0, max_err=0.0, doubtful=False,
-                               suppressed=False, confidence=0.0, fell_back=True)
+                               suppressed=False, confidence=0.0, fell_back=bool(fallback))
         for k in range(1, budget + 1):
             max_err = pcn.settle_step(x, target=None)
             pred = pcn.readout(x).detach()
@@ -111,6 +113,7 @@ class TLAPR1Model:
         if fallback and (confidence < fallback_conf or drift > drift_cap):
             pred = guess                                  # 瞎猜（直觉兜底）
             fell_back = True
+            doubtful = True                               # 回退=琢磨失败=不确定（含 drift 情形）
         else:
             pred = reasoned
         return pred, dict(steps=steps, max_err=max_err, doubtful=doubtful,

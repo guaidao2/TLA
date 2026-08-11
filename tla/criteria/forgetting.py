@@ -36,14 +36,14 @@ def train_epochs(m, trajs, n, replay_prob=0.3, freeze_base=False):
                 m.train_step(traj[t], traj[t + 1], freeze_base=freeze_base)
 
 
-def run_learn1_protocol(maker, protect_kwargs=None, seed=0, verbose=False):
+def run_learn1_protocol(maker, protect_kwargs=None, seed=0, verbose=False, n_traj=20):
     """P-LEARN-1 协议：返回 (保留率, 无保护保留率, 重放帮助, 学习强度, 琢磨回退)。"""
     protect_kwargs = protect_kwargs or {}
     wa = VariableSpeedWorld(seed=seed, mode="spring")
     wb = VariableSpeedWorld(seed=seed + 10, mode="spring")
-    train_a = wa.trajectories(n_traj=20, T=25, speed_range=(0.8, 1.5))
+    train_a = wa.trajectories(n_traj=n_traj, T=25, speed_range=(0.8, 1.5))
     test_a = wa.trajectories(n_traj=3, T=15, speed_range=(0.9, 1.3), seed=7)
-    train_b = wb.trajectories(n_traj=20, T=25, speed_range=(3.5, 4.5))
+    train_b = wb.trajectories(n_traj=n_traj, T=25, speed_range=(3.5, 4.5))
     indist = wa.trajectories(n_traj=3, T=15, speed_range=(1.0, 1.5), seed=11)
 
     def protocol(rp, extra=None):
@@ -78,7 +78,7 @@ def run_learn1_protocol(maker, protect_kwargs=None, seed=0, verbose=False):
 def run_diagnose(seed=0, n_traj=20, verbose=True):
     """诊断：B 训练冻结 W_base（只让残差通路学 B），A 保留率是否保住。"""
     r = run_learn1_protocol(lambda **k: TLAPR1Model(obs_dim=3, out_dim=2, **k),
-                            seed=seed, verbose=verbose)
+                            seed=seed, n_traj=n_traj, verbose=verbose)
     # 冻结版：B 训练时 freeze_base=True（另跑一个完整协议）
     wa = VariableSpeedWorld(seed=seed, mode="spring")
     wb = VariableSpeedWorld(seed=seed + 10, mode="spring")
@@ -148,7 +148,10 @@ def run_ewc(seed=0, lam=10, n_traj=20, verbose=True):
     retention_nr = a0_nr / max(a1_nr, 1e-9)
     replay_helps = a1_r < a1_nr
     p_learn1 = retention >= 0.95 and retention > retention_nr  # 主判据+优于无保护对照
-    # 保持判据：学习强度（分布内 <0.02）——复用 protocol(0.3) 已训练模型（省一整轮训练）
+    # 保持判据：学习强度（分布内 <0.02）——复用 protocol(0.3) 已训练模型（省一整轮训练）。
+    # 注：测量点在 A→finalize→B(protect) 之后（post-B），比 A-only 更保守——
+    # 验证"EWC 保护不破坏学习强度"（含 B 训练后的强度），语义与 run_learn1_protocol
+    # 的 A-only 测量不同，但方向一致（更严）。
     mse_indist = eval_mse(m_r, indist)
     keep_strength = mse_indist < 0.02
 

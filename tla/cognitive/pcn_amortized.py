@@ -68,7 +68,7 @@ class AmortizedResidualPCN:
         sigma2 = float(self._rep_var.mean())
         if sigma2 < self.sigma_target:
             push = (self.mu_1 - self._rep_mean) + 0.1 * torch.randn_like(self.mu_1)
-            self.mu_1 = self.mu_1 + self.rep_cov_reg * push
+            self.mu_1 = (self.mu_1 + self.rep_cov_reg * push).clamp(-self.mu_max, self.mu_max)
 
     def reset(self):
         self.mu_1 = torch.zeros_like(self.mu_1)
@@ -179,5 +179,9 @@ class AmortizedResidualPCN:
             acc["b_out"] += e_out
             e_out_sum += float(torch.mean(e_out ** 2).item())
         for k, v in self._params().items():
-            self.__dict__[k] = (1.0 - lr * wd) * v + (lr / B) * acc[k]
+            # 与 learn_step 对齐：仅权重矩阵衰减 wd，偏置不衰减（两路径一致性）
+            if k.startswith("b_"):
+                self.__dict__[k] = v + (lr / B) * acc[k]
+            else:
+                self.__dict__[k] = (1.0 - lr * wd) * v + (lr / B) * acc[k]
         return e_out_sum / B

@@ -50,9 +50,14 @@ TLA 的定位（§0，见设计文档）：
 
 ## 2 相关工作
 
-- **预测编码**：Rao & Ballard (1999) 提出分层误差传播的推理-学习二相性；Whittington & Bogacz
-  (2017) 证明 PCN 可逼近反向传播；Marin-Ricoy 等 (2024) 通过 Lifted Predictive Coding 使其
-  规模化。我们沿用标准 PCN 的 settle 动力学，但学习环全部为局部规则。
+- **预测编码**：Rao & Ballard (1999) 提出分层误差传播的推理-学习二相性；Whittington & Bogacz (2017)
+  证明 PCN 的局部学习规则在特定设定下（前向推理固定、单步更新）**近似反向传播**；Marin-Ricoy 等
+  (2024) 通过 Lifted Predictive Coding 使其规模化。我们沿用标准 PCN 的 settle 动力学与局部学习
+  规则（W&B 的 ΔW ∝ e·a 是本文无 BP 路线的坐标系），但**关键边界在于**：W&B 的近似证明覆盖的是
+  "不琢磨"的 PCN（单步更新），而 TLA 的推理环是迭代 settle。Millidge、Tschantz & Buckley (2022)
+  沿任意计算图重新考察了 PCN 与 BP 的近似关系，Tschantz 等亦研究了充分收敛推理下的目标级
+  （target-based）学习行为——充分迭代推理的 PCN 学习到的可能不是 BP 学到的东西。**"会琢磨"的
+  PCN 是否仍等价 BP，是本文的核心开放问题（§3.8），也是本架构相对"组合"更硬的潜在增量。**
 - **液态神经网络**：Hasani 等 (2021) 的 LTC 用输入调制时间常数做连续时间动力系统；Liquid AI
   (2024) 证明纯 ODE 求解不缩放，需离散化。我们只把 LTC 用作时间记忆基板。
 - **推理时计算**：o1/R1 的 thinking tokens、PonderNet (Banino 2021)、ACT (Graves 2016)、DEQ
@@ -246,6 +251,19 @@ $$
 - **修剪**：importance（长时窗 EMA）低于相对阈值（均值的一定比例，防级联，单次≤30%）；
 - **CLS 重放**：均匀抽样 + 上下文忠实（存当时的身体状态 $h$ 一并重放）+ 睡眠式大批量重放。
 
+### 3.8 开放问题：充分 settle 后，局部学习还等价 BP 吗？
+
+W&B (2017) 的近似证明设定为**前向推理固定、单步更新**——即"不琢磨"的 PCN 的局部学习 ≈ BP。
+TLA 的推理环是迭代 settle：预测→误差→修正→再预测，误差小/收敛/预算耗尽才停，**充分 settle
+之后才更新权重**。此时局部学习是否仍等价 BP 是**开放问题**；Millidge、Tschantz & Buckley (2022)
+与目标级学习（target-based learning）文献表明，充分收敛推理的 PCN 可能学习到不同于 BP 的表示。
+
+本文的实证策略（§4.5）：在同任务、同数据上对比
+(i) BP 学生网络、(ii) 单步局部学习 PCN（仍在 W&B 设定内）、(iii) 充分 settle 的局部学习 PCN
+（离开 W&B 设定），用表示距离（CKA）与泛化差异度量可区分性。**若充分 settle 的 PCN 与 BP 的
+差异显著大于单步 PCN 与 BP 的差异，则 TLA 的推理环实证离开 W&B 证明的覆盖区域**——这是
+"会琢磨"的 PCN 学到的可能是 BP 给不出的东西的直接证据。
+
 ---
 
 ## 4 实验
@@ -286,6 +304,23 @@ $dt$ 不规则采样。观测 $=[\operatorname{pos},\operatorname{vel},dt]$，�
 
 **(c) 防遗忘**（突触巩固，§3.5）：定位诊断（冻结首猜，保留率 6.4%→10.9%）确认遗忘分布全网络；
 EWC（λ=10，importance 归一化）后保留率 **108.6%**，B 仍可学（0.65 vs 随机 1.02）。
+
+### 4.5 开放问题实证：充分 settle 后，局部学习还等价 BP 吗？（负结果）
+
+按 §3.8 的策略，在弹簧任务上对比 BP 学生（autograd）、单步局部 PCN（W&B 设定内）、充分 settle
+局部 PCN（离开 W&B 设定）。**实测（预注册判据，行为判据含 20% 效应量余量）：**
+
+| 度量 | 单步 vs BP | 充分 settle vs BP | 判据 |
+|---|---|---|---|
+| 表示距离（线性 CKA） | 0.545 | **0.963** | 未偏离（settle 更接近 BP，非更远） |
+| 未见 ω 行为差异 \|MSE−MSE_bp\| | 0.109 | 0.101 | 未偏离（<20% 效应量） |
+
+**裁决：负结果**——在弹簧任务上未观测到"充分 settle 的局部学习离开 W&B 设定"的可区分证据；
+充分 settle 的表示反而与 BP **高度一致**（CKA 0.96）。归因：任务近似线性，充分训练后收敛到
+相似解，"训练充分性"压倒"学习规则差异"；与 P-COG-3 相同的**场地太易**问题。判别场地应是
+"settle 有实质工作可做"的任务（非线性/组合/迭代推理场景）——列为未来工作（§6）。本实验的
+诚实价值：它**证伪**了"迭代 settle 自动产生 BP 不可达表示"的过度乐观猜想，把增量锚点从
+"表示不同"收窄到"需要非线性场地"。
 
 ---
 
@@ -372,6 +407,8 @@ P-META-1~4（生长/校准/修剪/Self_Slot）。全部 40 个测试见 `tests/`
 10. Shazeer, N., et al. (2017). Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer. *ICLR*.
 11. Marin-Ricoy, A., Alonso, N., & Berbel, A. (2024). Lifted Predictive Coding. *arXiv*.
 12. DeepSeek-AI (2025). DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. *arXiv:2501.12948*.
+13. Millidge, B., Tschantz, A., & Buckley, C. L. (2022). Predictive Coding Approximates Backprop along Arbitrary Computation Graphs. *Neural Computation*.
+14. Lillicrap, T. P., Santoro, A., Marris, L., Akerman, C. J., & Hinton, G. (2020). Backpropagation and the brain. *Nature Reviews Neuroscience*.
 
 ---
 

@@ -16,9 +16,12 @@ class TLAPR1Model:
                  seed=0, lr=0.01, lr_inf=0.1, settle_steps=4,
                  infer_max_steps=8, infer_tol=0.02, tol_rel=0.5,
                  tol_progress=0.05, tol_out=0.005, energy_capacity=20.0,
-                 lam=1.0):
+                 lam=1.0, substrate_cls=None):
         self.obs_dim, self.out_dim = obs_dim, out_dim
-        self.ltc = LTCCell(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
+        if substrate_cls is None:
+            from tla.substrate.ltc_cell import LTCCell
+            substrate_cls = LTCCell
+        self.ltc = substrate_cls(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
         self.pcn = AmortizedResidualPCN(dims=[obs_dim + ltc_hidden, hidden],
                                         out_dim=out_dim, lr_inf=lr_inf,
                                         seed=seed + 1)

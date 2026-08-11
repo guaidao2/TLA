@@ -20,9 +20,12 @@ class TLAModel:
     def __init__(self, obs_dim, out_dim=2, ltc_hidden=16, hidden_dims=(24, 24),
                  seed=0, lr=0.01, lr_inf=0.1, settle_steps=4,
                  infer_max_steps=8, infer_tol=0.02, energy_capacity=20.0,
-                 use_lin_shortcut=True):
+                 use_lin_shortcut=True, substrate_cls=None):
         self.obs_dim, self.out_dim = obs_dim, out_dim
-        self.ltc = LTCCell(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
+        if substrate_cls is None:
+            from tla.substrate.ltc_cell import LTCCell
+            substrate_cls = LTCCell
+        self.ltc = substrate_cls(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
         self.pcn = PCNStack(dims=[obs_dim + ltc_hidden, *hidden_dims],
                             out_dim=out_dim, lr_inf=lr_inf,
                             use_lin_shortcut=use_lin_shortcut, seed=seed + 1)

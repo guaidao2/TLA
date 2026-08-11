@@ -8,7 +8,7 @@
    修复变体：α(e^{βI}−1)（input_gated=True），I=0 增长归零，幽灵态成为全局吸引子。
 2. §6.2 的 I_th 公式只取 ε 项（αe^{βI}ε > λh^γ），忽略 (h+ε) 的 h 部分——在幽灵态
    (h≈0.02 >> ε) 处阈值被高估 ~60×（文档 I_th≈3，实际≈0.05）。
-   → 判据输入值按实际阈值校准：SN-4 弱输入 weak=0.05（明确低于实际 I_th）、
+   → 判据输入值按实际阈值校准：SN-4 弱输入 weak=0.02（明显低于边界 I≈0.05，余量充足）、
    SN-6 噪声 U(0,0.02)（均值 0.01 < 0.05）。判据本身（"弱输入不暴胀"等）未改。
 
 两变体跑同一判据，如实记录对比。
@@ -63,10 +63,10 @@ def run_sn(cell, verbose=False, seed=0):
             errs.append(abs(t_est - t_true) / max(t_true, 1e-9))
     sn3 = len(errs) >= 3 and max(errs) < 0.05
 
-    # ---- SN-4 稀疏激活：弱输入（I=0.05 << 实际 I_th≈0.05-0.1）200 tick 内 h < 2·h* ----
+    # ---- SN-4 稀疏激活：弱输入（I=0.02 << 边界 I≈0.05；余量充足）200 tick 内 h < 2·h* ----
     cell.reset(0.0)
     for _ in range(200):
-        cell.step(0.05)
+        cell.step(0.02)
     weak_h = cell.h
     sn4 = cell.h < 2.0 * cell.ghost()
 

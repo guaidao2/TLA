@@ -4,7 +4,9 @@
 > 作者：guaidao2 · coolmoon · 玄幕安全团队 / 墨渊安全实验室
 > 状态：**研究原型（research prototype）**——机制层判据全部跑完，负结果如实记录
 
-📄 **研究论文（完整格式 + 详细数学推导）**：[docs/TLA_paper.md](docs/TLA_paper.md)（玄幕安全团队 guaidao2 · coolmoon）
+**研究论文（完整格式 + 详细数学推导）**：[docs/TLA_paper.md](docs/TLA_paper.md)（玄幕安全团队 guaidao2 · coolmoon）
+
+**奇点神经元论文**：[docs/奇点神经元_论文.md](docs/奇点神经元_论文.md)（宇宙演化映射的时序细胞，SN-1..6 判据验证；推导见 [docs/奇点神经元_数学推导.md](docs/奇点神经元_数学推导.md)）
 
 ---
 
@@ -33,15 +35,15 @@ TLA 是一个**研究原型级别的新神经网络架构**：把预测编码（
 
 | 判据 | 裁决 | 关键数字 |
 |---|---|---|
-| P-PHY-1~3 基板有界/断电/静息 | ✅ | 全过 |
-| **P-LEARN-3 无 BP 学得动** | ✅ | 训练 0.0008；未见 ω 0.480 vs 随机 0.978 vs 恒等 0.670 |
-| P-COG-1/2 会琢磨步数 | ⚠️ | 干净 median=3（预算 8 内不浪费）；噪声均值差分真实（2.67 vs 3.36） |
-| **P-COG-3 琢磨消融** | ❌→✅ | 有捷径空转 0.12%；**双过程回退后有能力轴翻转**（噪声 0.0931 < 瞎猜 0.0966） |
-| P-COG-4 doubtful 校准 | ✅ | 低置信 5.1× 高置信；doubtful 5.3× 未标记 |
-| P-COG-5 防摆烂/空转 | ⚠️ 跷跷板 | 有捷径空转 ↔ 无捷径摆烂（镜像失败面） |
-| **P-LEARN-1 防遗忘** | ❌→✅ | 重放缓解 4.4× 未达 95%；**突触巩固 EWC 后保留率 108.6%** |
-| P-LEARN-2 放大成本 | ✅ | hidden 32→128 成本比 1.07 <2× |
-| P-META-1~4 元层 | ✅/⚠️ | 生长/校准/修剪通过；Self_Slot 门控无行为增益（降级表征级） |
+| P-PHY-1~3 基板有界/断电/静息 | 通过 | 全过 |
+| **P-LEARN-3 无 BP 学得动** | 通过 | 训练 0.0008；未见 ω 0.480 vs 随机 0.978 vs 恒等 0.670 |
+| P-COG-1/2 会琢磨步数 | 部分 | 干净 median=3（预算 8 内不浪费）；噪声均值差分真实（2.67 vs 3.36） |
+| **P-COG-3 琢磨消融** | 负转正 | 有捷径空转 0.12%；**双过程回退后有能力轴翻转**（噪声 0.0931 < 瞎猜 0.0966） |
+| P-COG-4 doubtful 校准 | 通过 | 低置信 5.1× 高置信；doubtful 5.3× 未标记 |
+| P-COG-5 防摆烂/空转 | 部分（跷跷板） | 有捷径空转 ↔ 无捷径摆烂（镜像失败面） |
+| **P-LEARN-1 防遗忘** | 负转正 | 重放缓解 4.4× 未达 95%；**突触巩固 EWC 后保留率 108.6%** |
+| P-LEARN-2 放大成本 | 通过 | hidden 32→128 成本比 1.07 <2× |
+| P-META-1~4 元层 | 通过/降级 | 生长/校准/修剪通过；Self_Slot 门控无行为增益（降级表征级） |
 
 **三线合流（三个核心问题，全部有生物学依据的修复）**：
 学习弱（0.11→0.0046，原则一摊销首猜）、琢磨空转/负价值（双过程回退翻转）、遗忘（EWC 保留率 108.6%）。
@@ -50,13 +52,20 @@ TLA 是一个**研究原型级别的新神经网络架构**：把预测编码（
 同时杀死"会琢磨"（settle 被旁路→空转）、"防遗忘"（A/B 冲突映射权重级互覆）、"难度差分"。
 去掉捷径则机制真实（分布内 +45%）但学习弱。详见论文 §5。
 
+## 奇点神经元（时序细胞子项目，2026-08-11）
+
+把宇宙演化（奇点→暴胀→冷却→红移遗忘→暗能量）映射为单细胞状态轨迹的时序细胞：
+**状态在衰减期携带可解码的时间戳**（SN-3 解码误差 2.59%）。SN-1..6 判据验证：
+原始 ODE 存在"增长基线恒热"缺陷（幽灵态非全局吸引子），以 e^{βI}−1 修复后全部通过；
+判据零改动，缺陷以代码修复。论文见上文链接，实现见 `tla/substrate/singularity_cell.py`。
+
 ## 快速开始
 
 ```bash
-# 训练 + 判据报告（训练示例在 training/，本地保留不入库；需要 Python 3.11 + torch）
+# 训练 + 判据报告（训练示例在 training/；需要 Python 3.11 + torch）
 PYTHONIOENCODING=utf-8 python training/train_toy.py
 
-# 全部判据测试（49 个，约 90-120s）
+# 全部判据测试（54 个，约 90-120s）
 python -m pytest
 ```
 
@@ -64,20 +73,22 @@ python -m pytest
 
 ```
 tla/
-├── substrate/          # LTC 液态细胞 + Energy_Budget
-├── cognitive/          # PCN 层叠 / 摊销残差 PCN / MoE / 推理环 / 训练环 / Self_Slot / 工作记忆
+├── substrate/          # LTC 液态细胞 + Energy_Budget + 奇点神经元（singularity_cell）
+├── cognitive/          # PCN 层叠 / 摊销残差 PCN / 推理环 / 训练环 / Self_Slot / 工作记忆
 ├── meta/               # importance 长时窗 + 生长/修剪门
 ├── learning/           # CLS 重放（均匀抽样 + 上下文忠实）
 ├── tasks/              # 有界阻尼弹簧世界模型（变频率 + 不规则 dt + drift 模式）
-├── criteria/           # 预注册判据 runner（run_criteria / ablation / calibration / lifelong / moe / pr1 / pr1_fallback / forgetting）
+├── criteria/           # 预注册判据 runner（run_criteria / ablation / calibration / lifelong / moe / pr1 / pr1_fallback / forgetting / settle_vs_bp / singularity）
 ├── model.py            # 组合体装配（带捷径）
 ├── model_pr1.py        # 原则一装配（摊销首猜 + 残差 + 双过程回退 + EWC）
-└── model_moe.py        # MoE 专家装配
+└── model_moe.py        # MoE 专家装配（探索性）
 docs/
 ├── TLA_三层公理架构文档.md   # v0.2 设计蓝本（判据表 + 实测裁决 + §14 演化记录）
-└── TLA_paper.md            # 研究论文（完整格式 + 详细数学推导）
-tests/                       # 40 个判据测试（pytest）
-examples/train_toy.py        # 训练 + 判据报告入口
+├── TLA_paper.md            # TLA 研究论文（完整格式 + 详细数学推导）
+├── 奇点神经元_数学推导.md   # 奇点神经元推导 v0.1（SN-1..6 预注册判据）
+└── 奇点神经元_论文.md       # 奇点神经元论文（宇宙演化映射的时序细胞）
+tests/                       # 54 个判据测试（pytest）
+training/train_toy.py        # 训练 + 判据报告入口
 ```
 
 ## 判据纪律
@@ -86,9 +97,8 @@ examples/train_toy.py        # 训练 + 判据报告入口
 - **负结果如实记录**：P-COG-3、P-LEARN-1 初测均为负结果，全部记录 + 归因，不硬凑；
 - **负转正必须靠生物学依据**：双过程回退、突触巩固都是"造神经网络要在生物学基础上想原因"
   的方法论产物；
-- **可复现**：固定种子、40 测试全绿、每步 git 提交。
+- **可复现**：固定种子、54 测试全绿、每步 git 提交。
 
 ## License
 
 MIT（与 NLA/FakeAGI 系一致）。
-

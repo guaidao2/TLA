@@ -100,6 +100,8 @@ class TLAPR1Model:
         h = self.ltc.forward(obs)
         x = torch.cat([obs, h])
         pcn = self.pcn
+        if hasattr(pcn, "begin_step"):
+            pcn.begin_step()                 # 新观测步：复位路由标记（防跨观测陈旧赢家）
         budget = self.infer_max_steps if max_steps is None else max_steps
         steps, max_err, prev_err = 0, 0.0, float("inf")
         prev_pred, err_first = None, None

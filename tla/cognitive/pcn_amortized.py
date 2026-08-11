@@ -73,6 +73,10 @@ class AmortizedResidualPCN:
     def reset(self):
         self.mu_1 = torch.zeros_like(self.mu_1)
 
+    def begin_step(self):
+        """观测步开始钩子（MoE 堆栈用；单通路无路由状态，no-op）。"""
+        pass
+
     # ---- 误差 ----
     def errors(self, x, target=None):
         pred_base = self.W_base @ x + self.b_base

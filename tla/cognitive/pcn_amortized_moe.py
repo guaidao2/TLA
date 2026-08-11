@@ -6,7 +6,8 @@ v1 教训（2026-08-11 实测）：v1 只把残差读出层按专家分离，W_b
 v2 设计（"消遗忘"在构造上成立）：
 - 每个专家 = **完整 AmortizedResidualPCN**（自己的 W_base 首猜 + 自己的隐藏层 W_1 +
   自己的残差读出 W_out），只有 LTC 基板在堆栈外共享；
-- **原型路由**：专家持输入原型，就近竞争（硬路由主导学习 0.8/0.2，防对称/防死专家）；
+- **暖状态路由**：以“哪个专家的内部状态最能重建当前观测（前 obs_dim 维）”为准，
+  平手时用使用率打破对称（冷启动交替、防死专家）——纯硬路由（v1 的原型/0.8-0.2 已废弃）；
 - 输入路由到赢家专家 → **只有赢家 settle、只有赢家学** → B 训练物理上不触碰专家 A 的
   任何权重 → 遗忘在构造上不存在；
 - **琢磨只该用时用**：只赢家 settle（便宜），深度按误差收敛自适应，双过程回退兜底
@@ -48,8 +49,14 @@ class AmortizedMoEPCN:
         self.n_route = 0
 
     def reset(self):
+        self._routed = False
         for ex in self.expert:
             ex.reset()
+
+    def begin_step(self):
+        """每个观测步开始前调用：复位路由标记，防跨观测陈旧赢家（终审二轮 should-fix）。
+        推理首猜（readout/guess）若沿用上一观测的路由结果会读出陈旧专家。"""
+        self._routed = False
 
     # ---- 路由：暖状态**观测部分**重建误差（“哪个专家的内部状态最能重建当前观测”→
     #      任务对齐；排除共享 LTC h 分量的同步噪声）；平手（误差几乎相同）时用使用率
@@ -170,7 +177,7 @@ class AmortizedMoEPCN:
         acc = {k: torch.zeros_like(v) for k, v in self._params().items()}
         e_out_sum = 0.0
         for x, t in zip(xs, targets):
-            _, hard = self._route(x, update_proto=True)   # 路由定一次 + proto push-pull
+            _, hard = self._route(x, update_proto=True)   # 路由定一次 + usage EMA 同步发生
             ex = self.expert[hard]
             ex.settle(x, t, steps=settle_steps)
             e_0, e_1, e_out, pred_base, _, _ = ex.errors(x, t)

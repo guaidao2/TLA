@@ -46,6 +46,28 @@ def test_moe_stack_no_bp_discipline():
                    for v in vars(ex).values()), "专家参数不应 requires_grad"
 
 
+def test_route_consistency_fresh_per_step():
+    """终审二轮回归：begin_step() 复位路由标记——每个观测步首猜必须重新路由，
+    防跨观测陈旧赢家（第二观测沿用第一观测赢家 = 读出陈旧专家）。"""
+    m = TLAPR1MoEModel(seed=0)
+    x1 = torch.randn(3 + 16)
+    x2 = torch.randn(3 + 16) * 2
+    m.pcn.begin_step()
+    m.pcn.guess(x1)
+    assert m.pcn._routed is True
+    w1 = m.pcn.winner
+    m.pcn.begin_step()                                   # 新观测步复位
+    assert m.pcn._routed is False
+    m.pcn.guess(x2)
+    assert m.pcn._routed is True
+    # x2 的赢家必须由 x2 自己的路由决定（不是沿用 x1 的）
+    errs2 = [float(torch.mean(
+                (x2[:m.pcn.obs_dim] - torch.tanh(ex.W_1 @ ex.mu_1 + ex.b_1)[:m.pcn.obs_dim]) ** 2
+             ).item()) for ex in m.pcn.expert]
+    assert m.pcn.winner == int(torch.argmin(torch.tensor(errs2)).item()), \
+        f"x2 应重新路由: w1={w1} w2={m.pcn.winner}"
+
+
 def test_e1_learning_strength(experiments):
     """E1：首猜承重治愈 MoE 弱学习（轻量数据锁 <0.04；预注册 0.02 判据以标准量报告为准）。"""
     assert experiments["mse_indist"] < 0.04, \

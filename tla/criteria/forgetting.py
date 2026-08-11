@@ -82,9 +82,9 @@ def run_diagnose(seed=0, n_traj=20, verbose=True):
     # 冻结版：B 训练时 freeze_base=True（另跑一个完整协议）
     wa = VariableSpeedWorld(seed=seed, mode="spring")
     wb = VariableSpeedWorld(seed=seed + 10, mode="spring")
-    train_a = wa.trajectories(n_traj=20, T=25, speed_range=(0.8, 1.5))
+    train_a = wa.trajectories(n_traj=n_traj, T=25, speed_range=(0.8, 1.5))
     test_a = wa.trajectories(n_traj=3, T=15, speed_range=(0.9, 1.3), seed=7)
-    train_b = wb.trajectories(n_traj=20, T=25, speed_range=(3.5, 4.5))
+    train_b = wb.trajectories(n_traj=n_traj, T=25, speed_range=(3.5, 4.5))
     m = TLAPR1Model(obs_dim=3, out_dim=2, seed=seed)
     train_epochs(m, train_a, 2, 0.3)
     a0 = eval_mse(m, test_a)

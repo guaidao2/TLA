@@ -9,9 +9,6 @@ dist/
 # Reasonix 工具状态（不入库）
 .reasonix/
 
-# 训练示例（本地保留，不入库——GitHub 只传纯净架构代码）
-training/
-
 # 本地产物
 *.pt
 *.pth

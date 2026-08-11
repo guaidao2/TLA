@@ -303,9 +303,7 @@ tank-battle/                      # 工作区根
 │   │   ├── calibration.py        # P-COG-4 doubtful 校准
 │   │   └── lifelong.py           # P-LEARN-1/2（负结果裁决 + 放大成本）
 │   └── model.py                  # 组合体装配（LTC + PCN + Self_Slot + 能量 + 容量 + CLS + 推理）
-├── examples/
-│   └── train_toy.py              # 训练 + 判据报告入口（PYTHONIOENCODING=utf-8 防中文乱码）
-├── tests/                        # pytest：test_substrate/inference/learning/ablation/calibration/meta/lifelong
+├── tests/                        # 49 个判据测试（pytest）
 └── pytest.ini
 ```
 

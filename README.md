@@ -53,10 +53,10 @@ TLA 是一个**研究原型级别的新神经网络架构**：把预测编码（
 ## 快速开始
 
 ```bash
-# 训练 + 判据报告（需要 Python 3.11 + torch）
-PYTHONIOENCODING=utf-8 python examples/train_toy.py
+# 训练 + 判据报告（训练示例在 training/，本地保留不入库；需要 Python 3.11 + torch）
+PYTHONIOENCODING=utf-8 python training/train_toy.py
 
-# 全部判据测试（40 个，约 90s）
+# 全部判据测试（49 个，约 90-120s）
 python -m pytest
 ```
 

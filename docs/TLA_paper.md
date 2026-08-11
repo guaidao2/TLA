@@ -57,6 +57,28 @@ TLA 的定位（§0，见设计文档）：
   **关键边界**：W&B 等价定理在收敛推理下成立，而**有限推理（settle 步数不足）时 PCN 偏离 BP**。
   TLA 的推理环恰好在"充分 settle"与"有限推理"之间可调——settle 深度如何影响与 BP 的距离，
   是本文实证考察的问题（§3.8、§4.5）。
+- **非 BP 范式的理论地基**：Millidge、Song、Salvatori、Lukasiewicz & Bogacz (2022,
+  arXiv:2207.12316) 对“prospective configuration”（活动先 settle、权重后更新的标准 PCN
+  训练范式）给出理论刻画：该范式**不近似 BP**（与 W&B 的收敛等价正交），但仍收敛到 BP 损失
+  函数的临界点，且与 target propagation 有密切关联；其独有的优势恰在 online、few-shot 与
+  **continual learning** 等任务上。这为 TLA“无 BP 的持续学习”主张提供了直接的理论锚点：
+  他们证明“非 BP 范式在持续学习场景有理论优势”，我们在此基础上给出工程组合
+  （摊销首猜+残差分工、双过程回退、无 BP 突触巩固、LTC 基板）并做实证检验——理论在前，组合在后。
+- **摊销+迭代推理的最接近先例**：Tschantz、Millidge、Seth & Buckley (2022, arXiv:2204.02169)
+  提出 **Hybrid Predictive Coding**：将前馈 sweep 建模为摊销推理（快速、廉价、熟悉输入），
+  循环处理建模为迭代推理（上下文敏感、精确、样本高效），二者作为**同一目标函数的对偶优化**，
+  并由模型对自身不确定性的敏感度**自适应平衡**。这与 TLA 原则一“摊销首猜 + settle 迭代 + 自适应
+  深度”在机制上高度重合，是本文组合新颖性评估中必须正面回应的最强先例（详见“组合新颖性”）。
+  邻近工作还包括 Fujita (2026, arXiv:2606.27802) 用摊销初始化加速稀疏 PC 推理、以及
+  Ororbia (2019, arXiv:1908.08655) 的脉冲 PC 持续学习（迭代 guess-and-check + 无 BP 局部更新）。
+- **组合新颖性**：据我们所知（检索至 2026-08，arXiv 全文检索 + Semantic Scholar），**摊销+迭代
+  PCN 的自适应推理本身已有先例（Hybrid PC）**；本文件的首发点在于**完整六件套组合**：
+  ① 摊销首猜/残差通路的**学习信用分工**（W_base 只对自身误差负责、残差读出层只对总误差负责，
+  与 Hybrid PC 的“同一目标对偶优化”不同，是监督读出层的硬分工）；
+  ② **双过程回退**（系统2 琢磨失败 → 系统1 首猜兜底，作为最终输出决策规则）；
+  ③ **无 BP 突触巩固**（importance=权重更新量级，Fisher 式但全程局部可计算）与**上下文忠实重放**；
+  ④ **LTC 液态细胞**作为序列状态基板与 PCN 融合。
+  尚未检索覆盖：OpenReview / IEEE Xplore / GitHub 代码仓库与商业实现——投稿前应补查。
 - **液态神经网络**：Hasani 等 (2021) 的 LTC 用输入调制时间常数做连续时间动力系统；Liquid AI
   (2024) 证明纯 ODE 求解不缩放，需离散化。我们只把 LTC 用作时间记忆基板。
 - **推理时计算**：o1/R1 的 thinking tokens、PonderNet (Banino 2021)、ACT (Graves 2016)、DEQ
@@ -418,8 +440,10 @@ P-META-1~4（生长/校准/修剪/Self_Slot）。全部 44 个测试见 `tests/`
 11. Marin-Ricoy, A., Alonso, N., & Berbel, A. (2024). Lifted Predictive Coding. *arXiv*.
 12. DeepSeek-AI (2025). DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. *arXiv:2501.12948*.
 13. Millidge, B., Tschantz, A., & Buckley, C. L. (2022). Predictive Coding Approximates Backprop along Arbitrary Computation Graphs. *Neural Computation*.
-14. Lillicrap, T. P., Santoro, A., Marris, L., Akerman, C. J., & Hinton, G. (2020). Backpropagation and the brain. *Nature Reviews Neuroscience*.
+14. Millidge, B., Song, Y., Salvatori, T., Lukasiewicz, T., & Bogacz, R. (2022). A Theoretical Framework for Inference and Learning in Predictive Coding Networks. *arXiv:2207.12316*.
+15. Tschantz, A., Millidge, B., Seth, A. K., & Buckley, C. L. (2022). Hybrid Predictive Coding: Inferring, Fast and Slow. *PLOS Computational Biology* (arXiv:2204.02169).
+16. Lillicrap, T. P., Santoro, A., Marris, L., Akerman, C. J., & Hinton, G. (2020). Backpropagation and the brain. *Nature Reviews Neuroscience*.
 
 ---
 
-*本文所有实验数字均可由仓库代码复现（固定种子，pytest 40/40）。负结果与降级分支是判据的一部分，同样锁死。*
+*本文所有实验数字均可由仓库代码复现（固定种子，pytest 49/49）。负结果与降级分支是判据的一部分，同样锁死。*

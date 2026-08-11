@@ -391,7 +391,13 @@ tank-battle/                      # 工作区根
 - CLS 重放：surprise 加权在新任务高 surprise 垄断下防遗忘失效 → 均匀抽样；重放须**上下文忠实**（存 h_ctx 一并重放，重置 LTC 教的是"无上下文版本"的映射）；睡眠巩固实测无益已回滚；
 - 重放专用 lr 管道修复（step() 原忽略传入 lr 参数）。
 
-### 2026-08-11 摊销首猜 × MoE 专家分离 v2（消遗忘 + 琢磨只该用时用）
+### 2026-08-11 摊销首猜 × MoE 专家分离 v2（已回滚——代码恢复单通路 PR1，结论保留）
+
+> **回滚声明（同日）**：v2 实测不如原版单通路 PR1（防遗忘 19.5% vs 108.6%），
+> 代码已回滚到 796faac（`git checkout 796faac -- tla/model_pr1.py tla/cognitive/pcn_amortized.py`，
+> 删除 pcn_amortized_moe/model_pr1_moe/criteria/pr1_moe/tests/test_pr1_moe）。
+> 以下为**保留的负结果结论**（锁死，供真实任务阶段参考）：专家分离的收益必须建立在
+> 可判别路由上——先有判别性，再谈容量。
 
 - **v1 失败归因**：v1 只分离残差读出，W_base/共享隐藏层全局 → B 覆盖首猜 → 结构性防遗忘失败
   （无 EWC 保留率 2.8%）。**v2 重构**：每专家 = 完整 AmortizedResidualPCN（自己的

@@ -16,16 +16,12 @@ class TLAPR1Model:
                  seed=0, lr=0.01, lr_inf=0.1, settle_steps=4,
                  infer_max_steps=8, infer_tol=0.02, tol_rel=0.5,
                  tol_progress=0.05, tol_out=0.005, energy_capacity=20.0,
-                 lam=1.0, stack_cls=None, n_experts=2, top=16):
+                 lam=1.0):
         self.obs_dim, self.out_dim = obs_dim, out_dim
         self.ltc = LTCCell(in_dim=obs_dim, hidden=ltc_hidden, seed=seed)
-        if stack_cls is None:
-            stack_cls = AmortizedResidualPCN
-        kw = dict(out_dim=out_dim, lr_inf=lr_inf, seed=seed + 1)
-        if stack_cls.__name__ == "AmortizedMoEPCN":
-            kw["n_experts"] = n_experts
-            kw["obs_dim"] = obs_dim
-        self.pcn = stack_cls(dims=[obs_dim + ltc_hidden, hidden], **kw)
+        self.pcn = AmortizedResidualPCN(dims=[obs_dim + ltc_hidden, hidden],
+                                        out_dim=out_dim, lr_inf=lr_inf,
+                                        seed=seed + 1)
         self.self_slot = SelfSlot(in_dim=obs_dim + ltc_hidden, out_dim=out_dim,
                                   seed=seed + 2)
         self.scratchpad = Scratchpad()
@@ -100,8 +96,6 @@ class TLAPR1Model:
         h = self.ltc.forward(obs)
         x = torch.cat([obs, h])
         pcn = self.pcn
-        if hasattr(pcn, "begin_step"):
-            pcn.begin_step()                 # 新观测步：复位路由标记（防跨观测陈旧赢家）
         budget = self.infer_max_steps if max_steps is None else max_steps
         steps, max_err, prev_err = 0, 0.0, float("inf")
         prev_pred, err_first = None, None

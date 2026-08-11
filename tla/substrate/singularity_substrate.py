@@ -11,16 +11,21 @@
 输入尺度标定：奇点暴胀边界 I≈0.05（远低于 LTC 工作区间），input_scale 需相应缩小
 （默认 0.4 → 每细胞 I 的 std ≈ 0.09，混合暴胀/幽灵的稀疏区间）。判据复测见
 criteria/substrate_swap.py（换装后学习/琢磨/防遗忘是否保持）。
-注意：W_h 在幽灵态尺度下惰性（std≈0.03，h≈0.02 → W_h@h≈2e-3，递归记忆≈0）——
-"激活率 0%"的第二成因（第一是 ε 起爆慢 + 轨迹短）；需递归上下文时按幽灵态尺度重标定。
+
+**动力学修复（2026-08-11，排查发现）**：旧默认 λ=0.05（τ_decay=20 tick）、β=1.0
+（t_inf≈19 tick）比任务窗口（T=30）还长 → 细胞从不出现干净的暴胀-衰减循环
+（热后衰减事件=0，纯平衡态追踪）→ 时间戳（SN-3）在基板级从未可解码。
+新默认 λ=0.5（τ_decay=2 tick）、β=3.0（t_inf≈3.5 tick）→ 衰减相真实出现
+（校准实测热后衰减 321 次，热 9.5% 稀疏带内）。注意：W_h 在幽灵态尺度下惰性
+（std≈0.03，h≈0.02 → W_h@h≈2e-3，递归记忆≈0）——需递归上下文时按幽灵态尺度重标定。
 """
 import torch
 from tla.substrate.singularity_cell import SingularityCell
 
 
 class SingularitySubstrate:
-    def __init__(self, in_dim, hidden, input_scale=0.4, alpha=0.5, beta=1.0,
-                 eps=1e-4, h_max=1.0, lam=0.05, gamma=1.0, lam_dark=1e-3,
+    def __init__(self, in_dim, hidden, input_scale=0.4, alpha=0.5, beta=3.0,
+                 eps=1e-4, h_max=1.0, lam=0.5, gamma=1.0, lam_dark=1e-3,
                  seed=None):
         self.in_dim, self.hidden = in_dim, hidden
         gen = torch.Generator().manual_seed(seed) if seed is not None else None

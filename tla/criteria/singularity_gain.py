@@ -11,14 +11,14 @@
   S-T3 世界模型增益（核心）：标定后奇点基板未见 ω MSE ≤ LTC 基板 × 1.1（不劣化 10%），
      且学习成立（S-B1：< 0.7×随机 且 < 恒等）、防遗忘保持（S-B3：EWC 保留率 ≥ 0.95）。
 
-实测裁决（2026-08-11，n_traj=20/T=30/n_ep=2）：
-  S-T1 PASS：eps=0.01、input_scale=4.0 → 激活率 10.5%（硬暴胀真实发生，首次突破 0%）；
-  S-T2 FAIL（负向锁死，终审修正判据实现）：非激活细胞 h 可达 0.499（贴 0.5 边界）且
-     h>0.1 的非激活样本占比显著（分布证据）——连续近边界分布，非幽灵/饱和双簇；
-     （真炸要求激活簇 >0.7，原 act_lo≥0.5 是恒真式，已修）
-  S-T3 无增益（负向锁死）：标准量奇点 0.1394 vs LTC 0.1346（略差 3.6%）、轻量差 24%——
-     三种子 sing/ltc 比 [1.011, 1.066] 全 >1（一致差 1-7%，见 __main__ 多种子报告）；
-     硬暴胀未带来世界模型净收益，"时间戳增益"无迹象（学习成立，换装可用不退化）。
+实测裁决（2026-08-11，n_traj=20/T=30/n_ep=2，动力学修复后）：
+  S-T1 PASS：eps=0.01、input_scale=4.0 → 激活率 17.8%（硬暴胀真实发生）；
+  S-T2 FAIL（负向锁死）：非激活细胞 h 可达 0.500 且 h>0.1 占比 16.0%——连续近边界分布，
+     非幽灵/饱和双簇（真炸要求激活簇 >0.7，原 act_lo≥0.5 是恒真式，已修）；
+  S-T3 **翻转正结果**：动力学修复（λ=0.5、β=3.0 → 衰减相真实出现，S-T4）后奇点 0.1232
+     vs LTC 0.1346，多种子比 [0.915, 0.998] 全 <1（一致好 0.2-8.5%）；上一轮"负向锁死"
+     因实现缺陷重开（衰减相从未出现 → 时间戳从未可解码 → 测试条件不公平），修复后翻正；
+  S-T4 衰减相 PASS：热后衰减事件 688（修复验收：衰减相真实出现，时间戳可解码前提）。
 
 判据锁死：S-T1/T3 与 S-T2 的 inact 腿零改动；S-T2 的 act 腿由恒真式（≥0.5）修正为有
 约束力的真炸要求（>0.7）——修正使判据可识别贴边假双簇，裁决方向不变。标定参数
@@ -45,16 +45,19 @@ def activation_rate(substrate_kw, trajs):
 
 def cluster_stats(substrate_kw, trajs):
     """双簇统计：激活(h>0.5)细胞的最低 h（真炸要求显著高于 0.5）+ 非激活分布证据
-    （h>0.1 的样本占比——"连续近边界"叙述需分布支撑，非单极值）。"""
+    （h>0.1 的样本占比）+ 热后衰减事件数（衰减相是否真实出现，S-T4）。"""
     act_lo, act_hi, inact_hi = 1.0, 0.0, 0.0
     inact_over_0p1 = 0
     inact_total = 0
+    hot_decay = 0
     sub = SingularitySubstrate(in_dim=3, hidden=16, seed=0, **substrate_kw)
     for traj in trajs:
         sub.reset()
+        prev_h = None
         for t in range(len(traj)):
             sub.forward(traj[t])
-            for v in sub.h.tolist():
+            hh = sub.h
+            for v in hh.tolist():
                 if v > 0.5:
                     act_lo = min(act_lo, v)
                     act_hi = max(act_hi, v)
@@ -63,8 +66,12 @@ def cluster_stats(substrate_kw, trajs):
                     inact_hi = max(inact_hi, v)
                     if v > 0.1:
                         inact_over_0p1 += 1
+            if prev_h is not None:
+                drop = prev_h - hh
+                hot_decay += int(((prev_h > 0.5) & (drop > 0.3)).sum().item())
+            prev_h = hh.clone()
     frac_inact_over_0p1 = inact_over_0p1 / max(inact_total, 1)
-    return act_lo, act_hi, inact_hi, frac_inact_over_0p1
+    return act_lo, act_hi, inact_hi, frac_inact_over_0p1, hot_decay
 
 
 def eval_mse(model, trajs):
@@ -99,10 +106,11 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
     (eps_c, scale_c), rate_c = best
     p_t1 = 0.05 <= rate_c <= 0.40
 
-    # ---- S-T2 双簇（真炸要求激活簇显著高于 0.5，非贴边）----
-    act_lo, act_hi, inact_hi, frac_over_0p1 = cluster_stats(
+    # ---- S-T2 双簇（真炸要求激活簇显著高于 0.5，非贴边）+ S-T4 衰减相 ----
+    act_lo, act_hi, inact_hi, frac_over_0p1, hot_decay = cluster_stats(
         dict(eps=eps_c, input_scale=scale_c), train)
     p_t2 = act_lo > 0.7 and inact_hi <= 0.1 and frac_over_0p1 <= 0.05
+    p_t4 = hot_decay > 0                      # 衰减相真实出现（动力学修复的验收）
 
     # ---- S-T3 世界模型增益 ----
     def make_sing():
@@ -135,7 +143,8 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
 
     out = dict(eps=eps_c, scale=scale_c, rate=rate_c, p_t1=p_t1,
                act_lo=act_lo, act_hi=act_hi, inact_hi=inact_hi,
-               frac_over_0p1=frac_over_0p1, p_t2=p_t2,
+               frac_over_0p1=frac_over_0p1, p_t2=p_t2, hot_decay=hot_decay,
+               p_t4=p_t4,
                mse_sing=mse_sing, mse_ltc=mse_ltc, mse_rand=mse_rand,
                p_sb1=p_sb1, p_t3=p_t3)
     if verbose:
@@ -146,6 +155,8 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
               f"→ {'PASS' if p_t1 else 'FAIL'}")
         print(f"S-T2 双簇: 激活 h∈[{act_lo:.2f},{act_hi:.2f}] 非激活 h≤{inact_hi:.3f}"
               f" (>0.1 占比 {frac_over_0p1:.1%}) → {'PASS' if p_t2 else 'FAIL'}")
+        print(f"S-T4 衰减相: 热后衰减事件={hot_decay} "
+              f"→ {'PASS' if p_t4 else 'FAIL'}（动力学修复验收：衰减相真实出现）")
         print(f"S-T3 增益: 奇点={mse_sing:.4f} vs LTC={mse_ltc:.4f} vs 随机={mse_rand:.4f} "
               f"→ {'PASS' if p_t3 else 'FAIL'}（学习成立={p_sb1}）")
         print("=" * 64)

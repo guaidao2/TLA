@@ -78,14 +78,21 @@ TLA 的定位（§0，见设计文档）：
   ② **双过程回退**（系统2 琢磨失败 → 系统1 首猜兜底，作为最终输出决策规则）；
   ③ **无 BP 突触巩固**（importance=权重更新量级，Fisher 式但全程局部可计算）与**上下文忠实重放**；
   ④ **LTC 液态细胞**作为序列状态基板与 PCN 融合。
-  尚未检索覆盖：OpenReview / IEEE Xplore / GitHub 代码仓库与商业实现——投稿前应补查。
+  **补查进展（2026-08-11）**：OpenReview（旧 API）、Crossref、GitHub 仓库级搜索、arXiv 重试后，
+  **六件套完整组合仍无先例**（Hybrid PC 有开源实现 thebuckleylab/jpc，但缺零件 3/5/6）。
+  零件级地图：③（学习信用分工）与 ⑥（LTC 融合）为**最可能的新颖核心**（均未命中先例）；
+  ④（双过程回退）需与 HPC 的不确定性自适应（方向相反：不确定→更多迭代）及
+  Nye 等 (2021) 的神经符号双系统（无学习门控）**明确划界**；⑤（无 BP 巩固）有相近的
+  Hebbian 巩固工作（ICLR 2020 等）但"importance=更新量级 + 上下文忠实重放"精确组合未命中。
+  剩余检索缺口（不影响投稿前初步判断）：中文源（CNKI/万方）、专利、论文全文级检索。
 - **液态神经网络**：Hasani 等 (2021) 的 LTC 用输入调制时间常数做连续时间动力系统；Liquid AI
   (2024) 证明纯 ODE 求解不缩放，需离散化。我们只把 LTC 用作时间记忆基板。
 - **推理时计算**：o1/R1 的 thinking tokens、PonderNet (Banino 2021)、ACT (Graves 2016)、DEQ
   (Bai 2019)。已知失败模式为 overthinking 与 solver 空转；我们用"误差小即停 + 输出收敛即停 +
   预算耗尽 doubtful"三个停止条件，并用双过程回退解决空转。
 - **双过程理论**：Kahneman 系统1（快直觉）/系统2（慢推理）。我们的摊销首猜=系统1，settle=系统2，
-  "系统2失败→系统1兜底"是本文的生物学核心设计。
+  "系统2失败→系统1兜底"是本文的生物学核心设计。神经网络的先例是 Nye 等 (2021) 的
+  System1（直接生成）+ System2（符号校验）双系统（无学习门控的回退，与我们的置信/漂移门控不同）。
 - **灾难性遗忘与巩固**：EWC (Kirkpatrick 2017) 用 Fisher 信息惩罚重要权重；CLS (Kumaran 2016)
   用重放。我们提出无 BP 的突触巩固（importance=更新量级）并与上下文忠实重放结合。
 - **MoE**：专家混合 (Shazeer 2017)。我们用它做任务分离容量（探索性，见 §5.3）。
@@ -442,7 +449,8 @@ P-META-1~4（生长/校准/修剪/Self_Slot）。全部 44 个测试见 `tests/`
 13. Millidge, B., Tschantz, A., & Buckley, C. L. (2022). Predictive Coding Approximates Backprop along Arbitrary Computation Graphs. *Neural Computation*.
 14. Millidge, B., Song, Y., Salvatori, T., Lukasiewicz, T., & Bogacz, R. (2022). A Theoretical Framework for Inference and Learning in Predictive Coding Networks. *arXiv:2207.12316*.
 15. Tschantz, A., Millidge, B., Seth, A. K., & Buckley, C. L. (2022). Hybrid Predictive Coding: Inferring, Fast and Slow. *PLOS Computational Biology* (arXiv:2204.02169).
-16. Lillicrap, T. P., Santoro, A., Marris, L., Akerman, C. J., & Hinton, G. (2020). Backpropagation and the brain. *Nature Reviews Neuroscience*.
+16. Nye, M., et al. (2021). Improving Coherence and Consistency in Neural Sequence Models with Dual-System, Neuro-Symbolic Reasoning. *NeurIPS* (arXiv:2107.02794).
+17. Lillicrap, T. P., Santoro, A., Marris, L., Akerman, C. J., & Hinton, G. (2020). Backpropagation and the brain. *Nature Reviews Neuroscience*.
 
 ---
 

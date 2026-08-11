@@ -27,11 +27,14 @@ def test_st1_hard_inflation_calibrated(gain):
 
 
 def test_st2_bimodal_negative_locked(gain):
-    """S-T2（锁死负结果）：双簇不成立——非激活细胞可达 0.499（贴边界），
-    状态是连续近边界分布而非幽灵/饱和双簇。若未来修复使双簇成立，此测试失败 → 强制重评。"""
+    """S-T2（锁死负结果）：双簇不成立——非激活细胞可达 0.499（贴 0.5 边界）且
+    h>0.1 的非激活样本占比显著（连续近边界分布，非幽灵/饱和双簇）。
+    若未来修复使双簇成立，此测试失败 → 强制重评。"""
     assert not gain["p_t2"], "S-T2 应仍为负结果（双簇未成立）"
     assert gain["inact_hi"] > 0.1, \
         f"非激活细胞应可达 >0.1（贴边界连续分布）: inact_hi={gain['inact_hi']:.3f}"
+    assert gain["frac_over_0p1"] > 0.05, \
+        f"h>0.1 的非激活样本占比应显著: {gain['frac_over_0p1']:.1%}"
 
 
 def test_st3_no_gain_locked(gain):

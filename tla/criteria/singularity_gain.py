@@ -13,10 +13,12 @@
 
 实测裁决（2026-08-11，n_traj=20/T=30/n_ep=2）：
   S-T1 PASS：eps=0.01、input_scale=4.0 → 激活率 10.5%（硬暴胀真实发生，首次突破 0%）；
-  S-T2 FAIL（负向锁死）：非激活细胞 h 可达 0.499（贴 0.5 边界）——连续近边界分布，
-     非干净的幽灵/饱和双簇（细胞连续追踪输入驱动平衡态）；
+  S-T2 FAIL（负向锁死，终审修正判据实现）：非激活细胞 h 可达 0.499（贴 0.5 边界）且
+     h>0.1 的非激活样本占比显著（分布证据）——连续近边界分布，非幽灵/饱和双簇；
+     （真炸要求激活簇 >0.7，原 act_lo≥0.5 是恒真式，已修）
   S-T3 无增益（负向锁死）：标准量奇点 0.1394 vs LTC 0.1346（略差 3.6%）、轻量差 24%——
-     硬暴胀未带来世界模型净收益，"时间戳增益"无迹象（学习成立，换装可用不退化）。
+     **单种子点估计（3 种子比范围见 __main__），误差带未给**；硬暴胀未带来世界模型
+     净收益，"时间戳增益"无迹象（学习成立，换装可用不退化）。
 
 判据锁死：跑数后任何裁决不得篡改；标定参数（eps/input_scale）是测试设置，判据标准不变。
 """
@@ -40,8 +42,11 @@ def activation_rate(substrate_kw, trajs):
 
 
 def cluster_stats(substrate_kw, trajs):
-    """双簇统计：激活(h>0.5)与非激活(h<=0.5)细胞各自的 h 范围。"""
+    """双簇统计：激活(h>0.5)细胞的最低 h（真炸要求显著高于 0.5）+ 非激活分布证据
+    （h>0.1 的样本占比——"连续近边界"叙述需分布支撑，非单极值）。"""
     act_lo, act_hi, inact_hi = 1.0, 0.0, 0.0
+    inact_over_0p1 = 0
+    inact_total = 0
     sub = SingularitySubstrate(in_dim=3, hidden=16, seed=0, **substrate_kw)
     for traj in trajs:
         sub.reset()
@@ -52,8 +57,12 @@ def cluster_stats(substrate_kw, trajs):
                     act_lo = min(act_lo, v)
                     act_hi = max(act_hi, v)
                 else:
+                    inact_total += 1
                     inact_hi = max(inact_hi, v)
-    return act_lo, act_hi, inact_hi
+                    if v > 0.1:
+                        inact_over_0p1 += 1
+    frac_inact_over_0p1 = inact_over_0p1 / max(inact_total, 1)
+    return act_lo, act_hi, inact_hi, frac_inact_over_0p1
 
 
 def eval_mse(model, trajs):
@@ -88,9 +97,10 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
     (eps_c, scale_c), rate_c = best
     p_t1 = 0.05 <= rate_c <= 0.40
 
-    # ---- S-T2 双簇 ----
-    act_lo, act_hi, inact_hi = cluster_stats(dict(eps=eps_c, input_scale=scale_c), train)
-    p_t2 = act_hi >= 0.5 and inact_hi <= 0.1 and act_lo >= 0.5
+    # ---- S-T2 双簇（真炸要求激活簇显著高于 0.5，非贴边）----
+    act_lo, act_hi, inact_hi, frac_over_0p1 = cluster_stats(
+        dict(eps=eps_c, input_scale=scale_c), train)
+    p_t2 = act_lo > 0.7 and inact_hi <= 0.1 and frac_over_0p1 <= 0.05
 
     # ---- S-T3 世界模型增益 ----
     def make_sing():
@@ -122,7 +132,8 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
     p_t3 = mse_sing <= mse_ltc * 1.1 and p_sb1
 
     out = dict(eps=eps_c, scale=scale_c, rate=rate_c, p_t1=p_t1,
-               act_lo=act_lo, act_hi=act_hi, inact_hi=inact_hi, p_t2=p_t2,
+               act_lo=act_lo, act_hi=act_hi, inact_hi=inact_hi,
+               frac_over_0p1=frac_over_0p1, p_t2=p_t2,
                mse_sing=mse_sing, mse_ltc=mse_ltc, mse_rand=mse_rand,
                p_sb1=p_sb1, p_t3=p_t3)
     if verbose:
@@ -131,8 +142,8 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
         print("=" * 64)
         print(f"S-T1 标定: eps={eps_c}, input_scale={scale_c}, 激活率={rate_c:.1%} "
               f"→ {'PASS' if p_t1 else 'FAIL'}")
-        print(f"S-T2 双簇: 激活 h∈[{act_lo:.2f},{act_hi:.2f}] 非激活 h≤{inact_hi:.3f} "
-              f"→ {'PASS' if p_t2 else 'FAIL'}")
+        print(f"S-T2 双簇: 激活 h∈[{act_lo:.2f},{act_hi:.2f}] 非激活 h≤{inact_hi:.3f}"
+              f" (>0.1 占比 {frac_over_0p1:.1%}) → {'PASS' if p_t2 else 'FAIL'}")
         print(f"S-T3 增益: 奇点={mse_sing:.4f} vs LTC={mse_ltc:.4f} vs 随机={mse_rand:.4f} "
               f"→ {'PASS' if p_t3 else 'FAIL'}（学习成立={p_sb1}）")
         print("=" * 64)
@@ -140,4 +151,13 @@ def run_gain(seed=0, verbose=True, n_traj=20, T=30, n_ep=2):
 
 
 if __name__ == "__main__":
-    run_gain(verbose=True)
+    r = run_gain(verbose=True)
+    # S-T3 多种子点估计（单种子是点估计，误差带未给——诚实披露）
+    ratios = []
+    for sd in (0, 1, 2):
+        rr = run_gain(seed=sd, verbose=False)
+        ratios.append(rr["mse_sing"] / max(rr["mse_ltc"], 1e-12))
+    print(f"  [多种子 S-T3 比] sing/ltc: "
+          + " ".join(f"{v:.3f}" for v in ratios)
+          + f" | 范围 [{min(ratios):.3f}, {max(ratios):.3f}]"
+            f"（>1 = 奇点差于 LTC；点估计，样本 57/种子）")

@@ -13,8 +13,9 @@
 - 若 CKA(单步, BP) < CKA(充分settle, BP) − 0.05：**实证支持"收敛推理≈BP、有限推理偏离"**
   （文献一致方向）；
 - 若相反（settle 显著偏离 BP）：支持"离开 W&B 设定"。
-注：行为判据的 20% 余量是在初跑观察到噪声翻转（两设置间 0.101/0.109 vs 0.142/0.118）
-后加入的效应量声明——方向性上无法操纵结果（零余量下同为负/同方向），如实披露。
+注：行为判据的 20% 余量是在初跑观察到噪声翻转后加入的效应量声明——方向性上无法操纵结果
+（零余量下同为负/同方向），如实披露。实测翻转对：n=20 单步0.1006/settle0.0948；
+n=15 单步0.1096/settle0.1326。
 """
 import torch
 from tla.model_pr1 import TLAPR1Model
@@ -135,7 +136,7 @@ def run_settle_vs_bp(seed=0, n_epochs=2, n_traj=20, verbose=True):
                 obs = traj[t]
                 xp = torch.cat([obs, ltc_p.forward(obs)])
                 xb = torch.cat([obs, ltc_b.forward(obs)])
-                # PCN 表示：settle 后的 μ_1（固定步数）
+                # PCN 表示：settle 后的 μ_1（固定步数，与各自训练深度一致）
                 pred_model.pcn.settle(xp, steps=4 if pred_model.settle_steps > 1 else 1)
                 reps_pcn.append(pred_model.pcn.mu_1.detach())
                 reps_bp.append(bp_student.hidden(xb))

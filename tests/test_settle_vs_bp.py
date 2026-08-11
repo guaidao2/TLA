@@ -20,8 +20,8 @@ def test_limited_inference_deviates_from_bp(svb):
         f"单步应显著偏离 BP: CKA(single)={svb['cka_single']:.3f} vs CKA(settled)={svb['cka_settled']:.3f}"
 
 
-def test_single_step_behavior_deviates_more(svb):
-    """行为差异（报告项，不判定）：实测在设置间翻转（噪声），如实记录。"""
+def test_behavior_leg_reported(svb):
+    """行为差异腿（报告项，不判定）：实测在设置间翻转（噪声），如实记录。"""
     # 表示证据（p_rep）为稳健裁决依据；行为腿在 n_traj=15/20 间翻转（0.1096/0.1006 vs 0.1326/0.0948），
     # 不作断言——仅确认其已计算并记录在返回 dict 中。
     assert "diff_single" in svb and "diff_settled" in svb

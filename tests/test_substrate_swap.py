@@ -48,3 +48,16 @@ def test_substrate_dropin_interface():
     assert torch.all(m.ltc.h == 0)
     # 输入尺度标定注记：默认 0.4 落在近幽灵渐变区（激活率 ~0%，特征行为未触发）
     assert 0.0 <= m.ltc.h.min() <= m.ltc.h.max() <= 1.0
+
+
+def test_replay_context_restore():
+    """replay h_ctx 还原语义：还原 ltc.h 后 forward 必须从还原态继续演化
+    （终审 should-fix：张量与细胞内态需同步，否则换装语义失真）。"""
+    a = TLAPR1Model(seed=0, substrate_cls=SingularitySubstrate)
+    b = TLAPR1Model(seed=0, substrate_cls=SingularitySubstrate)
+    x = torch.randn(3)
+    h1 = a.ltc.forward(x)
+    h2a = a.ltc.forward(x)               # a 继续走一步
+    b.ltc.h = h1.clone()                 # b 还原 a 第一步后的状态（replay 语义）
+    h2b = b.ltc.forward(x)
+    assert torch.allclose(h2a, h2b, atol=1e-6), "还原后应严格从还原态演化"

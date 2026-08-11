@@ -11,6 +11,8 @@
 输入尺度标定：奇点暴胀边界 I≈0.05（远低于 LTC 工作区间），input_scale 需相应缩小
 （默认 0.4 → 每细胞 I 的 std ≈ 0.09，混合暴胀/幽灵的稀疏区间）。判据复测见
 criteria/substrate_swap.py（换装后学习/琢磨/防遗忘是否保持）。
+注意：W_h 在幽灵态尺度下惰性（std≈0.03，h≈0.02 → W_h@h≈2e-3，递归记忆≈0）——
+"激活率 0%"的第二成因（第一是 ε 起爆慢 + 轨迹短）；需递归上下文时按幽灵态尺度重标定。
 """
 import torch
 from tla.substrate.singularity_cell import SingularityCell
@@ -38,6 +40,10 @@ class SingularitySubstrate:
         self.h = torch.zeros_like(self.h)
 
     def forward(self, x):
+        # 先同步：self.h（张量）是细胞状态的唯一真相源——replay 还原 ltc.h = h_ctx
+        # 后，细胞从还原态继续演化（否则只有张量还原、内态陈旧，换装语义失真）
+        for i, c in enumerate(self.cells):
+            c.h = float(self.h[i].item())
         I = self.W_in @ x + self.W_h @ self.h + self.b
         hs = []
         for i, c in enumerate(self.cells):

@@ -5,12 +5,15 @@ from tla.criteria.forgetting import run_diagnose, run_ewc
 
 @pytest.fixture(scope="module")
 def diag():
-    return run_diagnose(seed=0, verbose=False)
+    # 诊断结论（frozen > baseline）在 n_traj=12 下仍成立（测试已验），可瘦身。
+    return run_diagnose(seed=0, n_traj=12, verbose=False)
 
 
 @pytest.fixture(scope="module")
 def ewc():
-    return run_ewc(seed=0, verbose=False)
+    # 注：EWC 保留率对 n_traj 敏感（20→108.6% / 15→72.1% / 12→87.3%），
+    # 判据完整性优先——不瘦身，保持 n_traj=20。
+    return run_ewc(seed=0, n_traj=20, verbose=False)
 
 
 def test_diag_forgetting_in_first_guess(diag):

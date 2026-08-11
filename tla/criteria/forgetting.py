@@ -75,7 +75,7 @@ def run_learn1_protocol(maker, protect_kwargs=None, seed=0, verbose=False):
                 guess_noise=g_n, fallback_noise=f_n)
 
 
-def run_diagnose(seed=0, verbose=True):
+def run_diagnose(seed=0, n_traj=20, verbose=True):
     """诊断：B 训练冻结 W_base（只让残差通路学 B），A 保留率是否保住。"""
     r = run_learn1_protocol(lambda **k: TLAPR1Model(obs_dim=3, out_dim=2, **k),
                             seed=seed, verbose=verbose)
@@ -110,16 +110,16 @@ def run_diagnose(seed=0, verbose=True):
                 retention_frozen=retention_frozen)
 
 
-def run_ewc(seed=0, lam=10, verbose=True):
+def run_ewc(seed=0, lam=10, n_traj=20, verbose=True):
     """突触巩固 EWC：A 训练累计 importance（归一化）→ 快照 → B 训练 protect 拉回。
 
     λ=10 为实测标定（归一化后）：保留率 108.6% 且 B 仍可学；λ>200 保护过度，
     λ=500 数值不稳定（NaN）。"""
     wa = VariableSpeedWorld(seed=seed, mode="spring")
     wb = VariableSpeedWorld(seed=seed + 10, mode="spring")
-    train_a = wa.trajectories(n_traj=20, T=25, speed_range=(0.8, 1.5))
+    train_a = wa.trajectories(n_traj=n_traj, T=25, speed_range=(0.8, 1.5))
     test_a = wa.trajectories(n_traj=3, T=15, speed_range=(0.9, 1.3), seed=7)
-    train_b = wb.trajectories(n_traj=20, T=25, speed_range=(3.5, 4.5))
+    train_b = wb.trajectories(n_traj=n_traj, T=25, speed_range=(3.5, 4.5))
     test_b = wb.trajectories(n_traj=2, T=10, speed_range=(3.7, 4.3), seed=8)
     indist = wa.trajectories(n_traj=3, T=15, speed_range=(1.0, 1.5), seed=11)
 
@@ -140,30 +140,16 @@ def run_ewc(seed=0, lam=10, verbose=True):
                 m.reset()
                 for t in range(len(traj) - 1):
                     m.train_step(traj[t], traj[t + 1], protect=True)
-        return a0, eval_mse(m, test_a), eval_mse(m, test_b)
+        return m, a0, eval_mse(m, test_a), eval_mse(m, test_b)
 
-    a0_r, a1_r, b1_r = protocol(0.3)
-    a0_nr, a1_nr, _ = protocol(0.0)
+    m_r, a0_r, a1_r, b1_r = protocol(0.3)
+    _, a0_nr, a1_nr, _ = protocol(0.0)
     retention = a0_r / max(a1_r, 1e-9)
     retention_nr = a0_nr / max(a1_nr, 1e-9)
     replay_helps = a1_r < a1_nr
     p_learn1 = retention >= 0.95 and retention > retention_nr  # 主判据+优于无保护对照
-    # 保持判据：学习强度（分布内 <0.02）——走完整 A→finalize→B(protect) 序列（防 EWC 破坏）
-    m = TLAPR1Model(obs_dim=3, out_dim=2, seed=seed, lam=lam)
-    m.pcn.start_consolidation()
-    m.replay.replay_prob = 0.3
-    for _ in range(2):
-        for traj in train_a:
-            m.reset()
-            for t in range(len(traj) - 1):
-                m.train_step(traj[t], traj[t + 1], consolidate=True)
-    m.pcn.finalize_consolidation()
-    for _ in range(2):
-        for traj in train_b:
-            m.reset()
-            for t in range(len(traj) - 1):
-                m.train_step(traj[t], traj[t + 1], protect=True)
-    mse_indist = eval_mse(m, indist)
+    # 保持判据：学习强度（分布内 <0.02）——复用 protocol(0.3) 已训练模型（省一整轮训练）
+    mse_indist = eval_mse(m_r, indist)
     keep_strength = mse_indist < 0.02
 
     if verbose:

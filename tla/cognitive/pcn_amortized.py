@@ -39,6 +39,36 @@ class AmortizedResidualPCN:
         self.b_out = torch.zeros(out_dim)
         self.mu_1 = torch.zeros(dims[1])
         self.last_max_err = 0.0
+        # ---- 表示坍缩防护（文本世界防预注册；默认关，机制就绪）----
+        self.rep_cov_reg = 0.0          # >0 激活；0=关
+        self.sigma_target = 1e-3        # 表示方差目标下限
+        self._rep_mean = None           # 表示 EMA 均值（跨样本）
+        self._rep_var = None            # 表示 EMA 方差
+
+    def update_rep_stats(self):
+        """跨样本 EMA 表示统计（检测坍缩：所有输入映射到同一表示 → 方差→0）。"""
+        mu = self.mu_1.detach()
+        if self._rep_mean is None:
+            self._rep_mean = mu.clone()
+            self._rep_var = torch.zeros_like(mu)
+        else:
+            self._rep_mean = 0.99 * self._rep_mean + 0.01 * mu
+            self._rep_var = 0.99 * self._rep_var + 0.01 * (mu - self._rep_mean) ** 2
+
+    def anti_collapse(self, lr=0.01):
+        """坍缩防护（默认关）：表示方差低于目标时，把 μ 推离 EMA 均值 + 小扰动。
+
+        面向文本世界/目标表示学习的防预注册机制（JEPA 坍缩问题的局部版本）——
+        当前无坍缩任务可行为验证，仅提供机制 hook 与统计；激活阈值/强度待真实场景标定。
+        """
+        if self.rep_cov_reg <= 0:
+            return
+        if self._rep_var is None:
+            return
+        sigma2 = float(self._rep_var.mean())
+        if sigma2 < self.sigma_target:
+            push = (self.mu_1 - self._rep_mean) + 0.1 * torch.randn_like(self.mu_1)
+            self.mu_1 = self.mu_1 + self.rep_cov_reg * push
 
     def reset(self):
         self.mu_1 = torch.zeros_like(self.mu_1)
@@ -66,6 +96,8 @@ class AmortizedResidualPCN:
         if e_out is not None:
             grad = grad - self.W_out.T @ e_out                  # target 注入（残差通路学总误差）
         self.mu_1 = (self.mu_1 - lr * grad).clamp(-self.mu_max, self.mu_max)
+        self.update_rep_stats()
+        self.anti_collapse(lr)
         self.last_max_err = self.max_err(e_0, e_1)
         return self.last_max_err
 
@@ -126,3 +158,26 @@ class AmortizedResidualPCN:
                 pull = lr * lam * self._imp[k] * (self._ref[k] - v)
                 self.__dict__[k] = v + pull
         return float(torch.mean(e_out ** 2).item())
+
+    # ---- 批训练（mini-batch 局部梯度等价）----
+    def learn_batch(self, xs, targets, lr=0.01, settle_steps=4, wd=1e-4):
+        """批量训练：逐样本 settle（批内暖启动，同序列训练语义），更新项按批累计后
+        除以批大小一次性应用——等价于对局部更新规则做 mini-batch 梯度（ΔW = (η/B)Σδ）。"""
+        B = len(xs)
+        acc = {k: torch.zeros_like(v) for k, v in self._params().items()}
+        e_out_sum = 0.0
+        for x, t in zip(xs, targets):
+            self.settle(x, t, steps=settle_steps)
+            e_0, e_1, e_out, pred_base, res, pred_total = self.errors(x, t)
+            e_base = t - pred_base
+            acc["W_base"] += torch.outer(e_base, x)
+            acc["b_base"] += e_base
+            g1 = 1.0 - torch.tanh(self.W_1 @ self.mu_1 + self.b_1) ** 2
+            acc["W_1"] += torch.outer(g1 * e_0, self.mu_1)
+            acc["b_1"] += g1 * e_0
+            acc["W_out"] += torch.outer(e_out, self.mu_1)
+            acc["b_out"] += e_out
+            e_out_sum += float(torch.mean(e_out ** 2).item())
+        for k, v in self._params().items():
+            self.__dict__[k] = (1.0 - lr * wd) * v + (lr / B) * acc[k]
+        return e_out_sum / B

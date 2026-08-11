@@ -51,7 +51,7 @@ def run_learn1(seed=0, verbose=True):
         m = TLAModel(obs_dim=3, out_dim=2, seed=seed)
         train_epochs(m, train_a, 2, replay_prob)
         mse_a0 = eval_mse(m, test_a)
-        train_epochs(m, train_b, 3, replay_prob)
+        train_epochs(m, train_b, 2, replay_prob)   # 瘦身：B 3→2 epochs（负结果余量极大）
         return mse_a0, eval_mse(m, test_a)
 
     a0, a1 = protocol(0.3)          # 有重放

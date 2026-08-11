@@ -69,6 +69,23 @@ class TLAPR1Model:
         self.ltc.h = h_ctx.clone()
         return self._core_step(s_t, s_next)
 
+    # ---- 批训练（mini-batch 局部更新，等价性由 tests/test_batch.py 验证）----
+    def train_batch(self, traj, batch_size=8):
+        """在一个轨迹上按 batch 累积局部更新（LTC 沿轨迹滚动，PCN 每 batch 应用一次）。"""
+        total, n = 0.0, 0
+        for start in range(0, len(traj) - 1, batch_size):
+            chunk = traj[start:start + batch_size + 1]
+            xs, targets = [], []
+            for t in range(len(chunk) - 1):
+                h = self.ltc.forward(chunk[t])
+                xs.append(torch.cat([chunk[t], h]))
+                targets.append(chunk[t + 1][: self.out_dim])
+            mse = self.pcn.learn_batch(xs, targets, lr=self.lr,
+                                       settle_steps=self.settle_steps)
+            total += mse * len(xs)
+            n += len(xs)
+        return total / max(n, 1)
+
     # ---- 推理（会琢磨：残差迭代精化直接改输出；琢磨失败→回退首猜=瞎猜，双过程系统2→系统1）----
     # fallback 默认 False（opt-in）：保既有判据（pr1/retest/ablation/lifelong/moe）的
     # "自适应"语义不被静默混入回退——回退实验（pr1_fallback.py）显式传入 fallback=True。

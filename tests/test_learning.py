@@ -18,7 +18,7 @@ def _eval_mse(model, trajs):
 def test_plearn3_error_driven_learning_happens():
     """误差驱动学习（无 BP/autograd）在未见 ω 上显著优于随机初始化基线。"""
     world = VariableSpeedWorld(seed=5)
-    train_trajs = world.trajectories(n_traj=30, T=40, speed_range=(0.8, 3.0))
+    train_trajs = world.trajectories(n_traj=20, T=30, speed_range=(0.8, 3.0))
     test_trajs = world.trajectories(n_traj=5, T=30, speed_range=(4.0, 5.0), seed=8)
 
     model = TLAModel(obs_dim=3, out_dim=2, seed=5)

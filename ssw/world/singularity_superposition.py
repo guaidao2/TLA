@@ -222,6 +222,8 @@ class SSWModel(nn.Module):
         self.head_hidden = head_hidden
         self.head_kind = head_kind
         self.plasticity = plasticity
+        assert plasticity in ("uniform", "gated", "frozen"), \
+            f"未知 plasticity 策略 {plasticity}（拼写错误会静默落到 uniform，安全审查补防）"
         self.branches = nn.ModuleList([
             ScheduleBranch(make_substrate(substrate_kind, hidden=hidden,
                                           seed=seed + 100 * i),

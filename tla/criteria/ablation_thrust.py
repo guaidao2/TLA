@@ -41,13 +41,17 @@ def run(seed=0, verbose=True, n_traj=30, T=40, n_ep=2):
             for s, a, s_next in traj:
                 m.train_step(torch.cat([s, a]), s_next)
 
-    # AB-1 推理环：同一模型，不同推理深度
+    # AB-1 推理环：同一模型，不同推理深度（注意：fixed1≈ad 部分是结构性的——infer
+    # 早停 out_change<0.005 时 adaptive 常只跑 1-2 步；真正承重证据是 g0≈ad：
+    # 纯首猜（完全跳过 settle）也≈自适应 → 琢磨对输出无贡献）
     mse_ad = eval_tla_at(m, test)              # 自适应（默认 settle）
     mse_f1 = eval_tla_at(m, test, max_steps=1) # 固定 1 步（关掉多步精化）
     mse_g0 = eval_tla_at(m, test, max_steps=0) # 纯首猜（0 步）
     p_ab1 = mse_f1 >= mse_ad * 1.05            # 关掉推理环显著降 → 在起作用
 
-    # AB-4 摊销捷径：freeze_base 训练
+    # AB-4 摊销捷径：freeze_base=True 冻结 W_base 在 **init（随机初始化，从不学习）**——
+    # 语义是"W_base 的学习对最终性能无贡献"（非"训练好的 W_base 无关紧要"）；
+    # 残差通路按 e_total 训练可完全补偿；比较基准（正常模型同 max_steps=1）一致。
     m_fb = TLAPR1Model(obs_dim=6, out_dim=4, seed=seed)
     for _ in range(n_ep):
         for traj in train:

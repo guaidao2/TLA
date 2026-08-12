@@ -30,7 +30,8 @@ def test_ab1_settle_loop_vacuous_locked(ab):
 
 
 def test_ab1_guess_close_to_settle(ab):
-    """AB-1 补充：纯首猜与自适应差距 <5%（连 settle 精化都不如首猜有用）。"""
+    """AB-1 补充（空转承重证据）：纯首猜与自适应差距 <5%——完全跳过 settle 也不降，
+    琢磨对输出无贡献（fixed1≈ad 部分是结构性的：infer 早停常只跑 1-2 步）。"""
     assert ab["mse_g0"] <= ab["mse_ad"] * 1.05, \
         f"纯首猜不应差: g0={ab['mse_g0']:.4f} ad={ab['mse_ad']:.4f}"
 

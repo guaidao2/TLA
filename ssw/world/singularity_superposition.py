@@ -179,6 +179,8 @@ class ScheduleBranch(nn.Module):
                 h0_bar = self.substrate.h0_h.mean()
                 num = (h_bar - self.h_star).clamp(min=1e-9)
                 den = (h0_bar - self.h_star).clamp(min=1e-9)
+                # 注：λ=0.08 名义 vs 欧拉离散实际 -ln(0.92)≈0.0834 → k̂ ~4% 偏小，
+                # 由可学 interval 自补偿（"解析可逆"是近似，如实披露）
                 k = (-(torch.log(num / den)) / self.lam).clamp(min=0.0)
             time = ((self.interval - k) / self.t_norm).clamp(0.0, 1.0)
             nxt = torch.sigmoid((k - self.interval + 1.0) * 5.0)
@@ -285,8 +287,13 @@ class SSWModel(nn.Module):
             loss = torch.mean((preds[i] - target) ** 2)
             total = total + self.amps[i] * loss
         total.backward()
-        if self.plasticity == "gated":
+        if self.plasticity == "frozen":
+            # 全冻结（η=0）：只算损失不更新（SW-5 极端对照——终审修复：
+            # 原实现落到 uniform 分支，frozen=uniform 是 bug 而非机制）
+            self.opt.zero_grad(set_to_none=True)
+        elif self.plasticity == "gated":
             # 逐分支更新：η_i = base_lr·(1−amp_i)（非主导可塑、主导提交）
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
             for i, b in enumerate(self.branches):
                 gate = 1.0 - float(self.amps[i])
                 if gate <= 1e-3 or not any(

@@ -1,14 +1,18 @@
 """可塑性策略判据锁死测试（SW-5，预注册见 criteria/plasticity.py）。
 
-实测裁决（2026-08-11，轻量 n_ep_calib=8/T_phase=60/seed=0 锁方向）：
-  uniform：cost 0.1159 / ret 0.0022；gated：cost 0.1136 / ret 0.0015；
-  frozen：cost 0.1159 / ret 0.0022（≈uniform——振幅加权损失已隐含提交，
-  失败分支被饿死 → uniform 的在线训练≈冻结）；
-  SW-5a 回切保留 PASS：gated ret 0.0015 ≤ 0.95×0.0022（保留优势，3/3 seed 方向一致）；
-  SW-5b 切换成本 PASS：gated cost 0.1136 ≤ 1.3×0.1159（适应不慢）。
+实测裁决（2026-08-11，轻量 n_ep_calib=8/T_phase=60/seed=0 锁方向；终审修复后）：
+  uniform：cost 0.1665 / ret 0.0028；gated：cost 0.1452 / ret 0.0014；
+  frozen（真 η=0，终审修复）：cost 0.1131 / ret 0.0023；
+  SW-5a 回切保留 PASS：gated ret 0.0014 ≤ 0.95×0.0028（保留优势，3/3 seed 方向一致）；
+  SW-5b 切换成本 PASS：gated cost 0.1452 ≤ 1.3×0.1665（适应不慢）。
 
-标准量（n_ep_calib=10/T_phase=80）3 seed：gated 回切恒优 1.1-2×、成本恒 ≤1.3×——
-门控抵消振幅加权损失的饿死效应，切换期适应更好且保留不损。
+**表述撤回（终审修复）**：初版"uniform≈frozen（振幅加权饿死效应）"是 bug 产物——
+plasticity="frozen" 原实现落到 uniform 分支（frozen=uniform 是恒等式）。修复后真实
+frozen（η=0）切换成本 0.1131 为最低（不适应+坍缩选最不差分支），uniform 0.1665 最差
+（适应反而扰动 min-err）。真实结论：gated 在保留（2×）与切换成本（优于 uniform）上
+双向占优——显式门控有效，但"饿死效应"机制表述撤回。
+
+标准量（n_ep_calib=10/T_phase=80）3 seed：gated 回切恒优 1.1-2×、成本恒 ≤1.3×。
 
 净结论：显式可塑性门控（η_i∝1−amp_i）在解析头叠加模型上是有效增量——
 "适应 vs 保留"不再二选一。
@@ -30,10 +34,3 @@ def test_sw5_gated_better_tradeoff(sw5):
         f"gated 回切应更快: {g['restore']:.4f} vs {u['restore']:.4f}"
     assert g["cost"] <= 1.3 * u["cost"], \
         f"gated 适应不应慢太多: {g['cost']:.4f} vs {u['cost']:.4f}"
-
-
-def test_sw5_uniform_equals_frozen(sw5):
-    """机制发现锁死：uniform≈frozen——振幅加权损失饿死失败分支（隐含提交）。"""
-    u, f = sw5["res"]["uniform"], sw5["res"]["frozen"]
-    assert abs(u["cost"] - f["cost"]) < 1e-6, \
-        f"uniform 应≈frozen（饿死效应）: {u['cost']:.6f} vs {f['cost']:.6f}"

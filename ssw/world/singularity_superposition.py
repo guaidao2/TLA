@@ -158,6 +158,7 @@ class SSWModel(nn.Module):
         self.temp = temp
         self.max_branches = max_branches
         self.seed = seed
+        self.hidden = hidden
         self.head_hidden = head_hidden
         self.branches = nn.ModuleList([
             ScheduleBranch(make_substrate(substrate_kind, hidden=hidden,
@@ -245,7 +246,7 @@ class SSWModel(nn.Module):
             return False
         parent_idx = int(torch.argmax(self.amps).item())
         parent = self.branches[parent_idx]
-        child = ScheduleBranch(make_substrate(self.kind, hidden=16,
+        child = ScheduleBranch(make_substrate(self.kind, hidden=self.hidden,
                                               seed=self.seed + 100 * len(self.branches)),
                                head_hidden=self.head_hidden,
                                seed=self.seed + 1000 * len(self.branches))

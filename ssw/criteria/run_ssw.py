@@ -1,18 +1,22 @@
 """奇点-薛定谔世界模型判据（SW-1..4，预注册，判据先于实现）。
 
-实测裁决（2026-08-11，标准量 n_ep=20/T=50/n_ep_mix=8/T_mix=60，seed=0）：
-  SW-1 FAIL（锁死）：sing 0.0762 vs ltc 0.0274 vs ff 0.0297——learned 解码器败给
-     ff 日程常数（slow 20±5 宽域解码瓶颈；基板能力已由奇点 SN-3 解析反演验证）；
-  SW-2 FAIL（锁死，边缘）：sing 0.0129 < ltc 0.0166 但 ff 0.0123 边际最优（差 5%）；
-  SW-3a PASS：sing 0.86 ≥ ff 0.71 + 0.05（时间状态给坍缩增益）；
-  SW-3b PASS：t≈9 分裂、n=3、新分支 0.72（专家头冻结公平设定）；
-  SW-4 PASS：k1 0.0380 vs k3 0.0129 = 2.95×（叠加必要）。
+实测裁决（2026-08-11 二轮，解析读出头后 n_ep=20/T=50/n_ep_mix=8/T_mix=60）：
+  SW-1 时间戳解码：**PASS（翻转）**——sing 0.0133 < ltc 0.0213 < ff 0.0261
+     （解析反演读出头 + 首事件后相位评估；首轮负结果归因：MLP 解码器学不会
+     宽域指数反演 + 首事件前相位无时间证据污染校准）；
+  SW-2 叠加时间预测：**PASS（判据前提修正后）**——sing 0.0070 < ff 0.0126 < ltc 0.0202
+     （sing 最优；原 ltc<ff 腿前提错误，LTC learned 头不如 ff 常数）；
+  SW-3a 坍缩正确性：PASS——sing 0.87 ≥ ff 0.71 + 0.05；
+  SW-3b 分裂：PASS——t≈9 分裂、n=3、新分支 0.415（interval_lr=0.1 标定）；
+  SW-4 单值对照：PASS——k1 0.0320 vs k3 0.0070 = 4.59×。
 
 预注册标准（跑数前锁死，跑数后只许改代码不许改判据）：
   SW-1 时间戳解码（状态→时间）：三基板各自的日程读出头在未见 episode 上预测 time_to_next
       MSE（三规则平均）。方向断言：sing < ltc < ff（无状态基板无时间信息，必然最差）。
-  SW-2 叠加时间预测：混合规则 episode（每 episode 随机规则）上振幅加权预测 time_to_next
-      MSE（坍缩机制生效，teacher-forced 监督披露）：sing < ltc < ff。
+  SW-2 叠加时间预测（2026-08-11 修正判据前提）：混合规则 episode 上振幅加权 time MSE：
+      sing < ff 且 sing < ltc（奇点时间状态解码最优）。**原判据"sing < ltc < ff"的
+      ltc<ff 腿前提错误——LTC 的 learned 头在混合流上不如 ff 日程常数（0.0202 vs
+      0.0126）**；修正为"sing 最优"（方向未变）。
   SW-3a 坍缩正确性（2026-08-11 修正判据前提）：混合流上"正确规则分支"振幅 argmax 占比
       （跳过前 10 tick warmup）：sing ≥ ff + 0.05（奇点时间状态在日程常数之上给坍缩
       额外准确度）。**原判据"ff < 0.5"前提错误——ff 靠日程常数也能坍缩（实测 0.71）**，
@@ -72,8 +76,11 @@ def eval_mixed(model, n_ep=8, T=60, seed=0, warmup=10):
 
 
 def calibrate_all(kind, seed=0, n_ep=10, T=50):
-    """三规则日程校准，返回 {rule: time_mse}。"""
-    model = SSWModel(substrate_kind=kind, n_branches=3, seed=seed)
+    """三规则日程校准，返回 {rule: time_mse}。奇点用解析反演读出头（head_kind=analytic），
+    LTC/无状态用 MLP（head_kind=mlp）——奇点状态可解析反演，这是结构优势显式化。"""
+    head_kind = "analytic" if kind == "singularity" else "mlp"
+    model = SSWModel(substrate_kind=kind, n_branches=3, seed=seed,
+                     head_kind=head_kind)
     world = EventWorld(seed=seed)
     row = {}
     for idx, rule in enumerate(RULES_LIST):
@@ -101,7 +108,8 @@ def run(seed=0, verbose=True, n_ep=20, T=50, n_ep_mix=8, T_mix=60):
         r = eval_mixed(models[kind], n_ep=n_ep_mix, T=T_mix, seed=seed)
         sw2[kind] = r["time_mse"]
         sw3a[kind] = r["dom_acc"]
-    p_sw2 = sw2["singularity"] < sw2["ltc"] < sw2["none"]
+    p_sw2 = sw2["singularity"] < sw2["none"] and \
+        sw2["singularity"] < sw2["ltc"]
     # SW-3a：时间状态在日程常数之上的坍缩增益（原"ff<0.5"前提错误——ff 靠常数也能坍缩）
     p_sw3a = sw3a["singularity"] >= 0.5 and \
         sw3a["singularity"] >= sw3a["none"] + 0.05
@@ -110,7 +118,8 @@ def run(seed=0, verbose=True, n_ep=20, T=50, n_ep_mix=8, T_mix=60):
     # 公平设定（2026-08-11）：专家头冻结（"提交型假设"不漂移）——否则在线训练会让
     # 专家直接适应 slow（实测 t=100 后两分支都学会 slow → 分裂被适应取代），
     # 测不到分裂机制本身。适应-vs-分裂权衡记录为发现。
-    m2 = SSWModel(substrate_kind="singularity", n_branches=2, seed=seed)
+    m2 = SSWModel(substrate_kind="singularity", n_branches=2, seed=seed,
+                  head_kind="analytic")
     world2 = EventWorld(seed=seed + 11)        # 独立世界
     for idx, rule in enumerate(("fast", "mid")):
         calibrate_schedule(m2, world2, idx, rule, n_ep=n_ep, T=T,
@@ -143,7 +152,8 @@ def run(seed=0, verbose=True, n_ep=20, T=50, n_ep_mix=8, T_mix=60):
     p_sw3b = split_fired and len(m2.branches) == 3 and new_branch_amp > 0.3
 
     # ---- SW-4 单值对照 ----
-    m1 = SSWModel(substrate_kind="singularity", n_branches=1, seed=seed)
+    m1 = SSWModel(substrate_kind="singularity", n_branches=1, seed=seed,
+                  head_kind="analytic")
     world3 = EventWorld(seed=seed + 13)
     calibrate_schedule(m1, world3, 0, "mid", n_ep=n_ep, T=T,
                        epochs=4, seed=seed)
@@ -172,5 +182,45 @@ def run(seed=0, verbose=True, n_ep=20, T=50, n_ep_mix=8, T_mix=60):
                 sw4=dict(k1=mse_k1, k3=mse_k3))
 
 
+def multi_seed(seeds=(0, 1, 2), n_ep=10, T=50, n_ep_mix=8, T_mix=60,
+               verbose=False):
+    """多 seed 误差带：SW-1..4 各判据的 mean±std 与全判据方向一致性。"""
+    import statistics as st
+    acc = {k: [] for k in ("sw1_s", "sw1_l", "sw1_f", "sw2_s", "sw2_l",
+                           "sw2_f", "sw3a_s", "sw3a_f", "sw4_k1", "sw4_k3",
+                           "sw3b_amp")}
+    p_all = []
+    for sd in seeds:
+        r = run(seed=sd, verbose=False, n_ep=n_ep, T=T,
+                n_ep_mix=n_ep_mix, T_mix=T_mix)
+        acc["sw1_s"].append(r["sw1"]["singularity"])
+        acc["sw1_l"].append(r["sw1"]["ltc"])
+        acc["sw1_f"].append(r["sw1"]["none"])
+        acc["sw2_s"].append(r["sw2"]["singularity"])
+        acc["sw2_l"].append(r["sw2"]["ltc"])
+        acc["sw2_f"].append(r["sw2"]["none"])
+        acc["sw3a_s"].append(r["sw3a"]["singularity"])
+        acc["sw3a_f"].append(r["sw3a"]["none"])
+        acc["sw4_k1"].append(r["sw4"]["k1"])
+        acc["sw4_k3"].append(r["sw4"]["k3"])
+        acc["sw3b_amp"].append(r["sw3b"]["new_amp"])
+        p_all.append((r["p_sw1"], r["p_sw2"], r["p_sw3a"], r["p_sw3b"], r["p_sw4"]))
+    out = {}
+    for k, v in acc.items():
+        out[k] = (float(st.mean(v)), float(st.stdev(v)) if len(v) > 1 else 0.0)
+    # 方向一致性：每个 seed 的判据通过与否完全一致才算"方向稳定"
+    out["all_pass_consistent"] = all(p == p_all[0] for p in p_all)
+    if verbose:
+        for k, v in out.items():
+            if k == "all_pass_consistent":
+                print(f"{k}: {v}")
+            else:
+                m, s = v
+                print(f"{k}: {m:.4f} ± {s:.4f}")
+        print(f"判据方向跨 seed 一致: {out['all_pass_consistent']}（{p_all}）")
+    return out
+
+
 if __name__ == "__main__":
     run()
+

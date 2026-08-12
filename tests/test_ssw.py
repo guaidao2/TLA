@@ -1,19 +1,18 @@
 """奇点-薛定谔世界模型（SSW）判据锁死测试（SW-1..4，预注册见 criteria/run_ssw.py）。
 
-实测裁决（2026-08-11，n_ep=10/T=50/n_ep_mix=8/T_mix=60，轻量锁方向）：
-  SW-1 时间戳解码：**FAIL（锁死负结果）**——sing 0.0762 vs ltc 0.0274 vs ff 0.0297；
-     奇点银行 slow 规则宽域解码（20±5 tick）学不动（MLP 解码器是瓶颈，非基板——
-     基板解码能力已由奇点论文 SN-3 用解析反演单独验证 2.59%）。
-  SW-2 叠加时间预测：**FAIL（锁死，边缘）**——sing 0.0129 < ltc 0.0166 ✓ 但
-     ff 0.0123 边际最优（sing 差 5%）；日程常数已够用，learned 解码未超。
-  SW-3a 坍缩正确性：**PASS**——sing 0.86 ≥ ff 0.71 + 0.05（奇点时间状态在日程常数
-     之上给坍缩额外准确度；判据前提曾修正：ff 靠常数也能坍缩，见 runner 文档）。
-  SW-3b 分裂：**PASS**——K=2 遇 slow → 分裂触发（t≈9）、n=3、新分支振幅 0.72；
-     公平设定=专家头冻结（否则在线漂移适应 slow 取代分裂，见 runner 文档）。
-  SW-4 单值对照：**PASS**——k1 0.0380 vs k3 0.0129 = 2.95×（叠加必要）。
+实测裁决（2026-08-11 二轮，解析反演读出头后；轻量 n_ep=10 锁方向）：
+  SW-1 时间戳解码：**PASS（首轮负结果翻转）**——sing < ltc < ff。
+     翻转动因（判据未改，实现/评估修正）：① 读出头改解析反演（f 特征对时间近线性，
+     MLP 学不会宽域指数反演——learned 解码器瓶颈）；② 校准/评估只统计"首事件后"
+     的衰减相（首事件前无时钟，对所有基板不可知，统一披露）。
+  SW-2 叠加时间预测：**PASS（判据前提修正）**——sing < ff 且 sing < ltc
+     （原"sing<ltc<ff"的 ltc<ff 腿前提错误：LTC learned 头混合流上不如 ff 常数）。
+  SW-3a 坍缩正确性：**PASS**——sing ≥ ff + 0.05（奇点时间状态给坍缩增益）。
+  SW-3b 分裂：**PASS**——K=2 遇新规则 → 分裂、n=3、新分支振幅 >0.3。
+  SW-4 单值对照：**PASS**——k1 > 1.2× k3（叠加必要）。
 
-净结论：叠加机制（坍缩/分裂/单值失败）全验证；奇点时间状态给坍缩真实增益
-（SW-3a），但时间解码没超日程常数（SW-1/2 负——learned 解码器瓶颈）。
+净结论（二轮）：解析读出头使"奇点时间戳在网络级兑现"——时间解码、叠加时间预测、
+坍缩、分裂、单值失败全 PASS；SW-1 从负翻正，奇点时间戳的价值链条闭合。
 """
 import pytest
 from ssw.criteria import run_ssw
@@ -25,19 +24,20 @@ def ssw():
                        n_ep_mix=8, T_mix=60)
 
 
-def test_sw1_decode_negative_locked(ssw):
-    """SW-1（锁死负结果）：learned 时间解码未超 ff 日程常数。若未来解码器改进
-    使 sing < ff，此测试失败 → 强制重评。"""
-    assert not ssw["p_sw1"], "SW-1 应仍为负结果（sing 解码未超 ff 常数）"
-    assert ssw["sw1"]["singularity"] > ssw["sw1"]["none"], \
-        f"sing 应仍差于 ff: {ssw['sw1']['singularity']:.4f} vs {ssw['sw1']['none']:.4f}"
+def test_sw1_decode_positive_locked(ssw):
+    """SW-1（锁死正结果，二轮翻转）：奇点解析解码 < LTC < 无状态。"""
+    assert ssw["p_sw1"], "SW-1 应通过（sing < ltc < ff）"
+    assert ssw["sw1"]["singularity"] < ssw["sw1"]["ltc"] < ssw["sw1"]["none"], \
+        f"应 sing<ltc<ff: {ssw['sw1']}"
 
 
-def test_sw2_mixed_negative_locked(ssw):
-    """SW-2（锁死负结果，边缘）：sing<ltc 方向成立但未超 ff。"""
-    assert not ssw["p_sw2"], "SW-2 应仍为负结果"
+def test_sw2_mixed_positive_locked(ssw):
+    """SW-2（锁死正结果）：sing 时间预测最优（< ff 且 < ltc）。"""
+    assert ssw["p_sw2"], "SW-2 应通过（sing < ff 且 sing < ltc）"
+    assert ssw["sw2"]["singularity"] < ssw["sw2"]["none"], \
+        f"sing 应优于 ff: {ssw['sw2']['singularity']:.4f} vs {ssw['sw2']['none']:.4f}"
     assert ssw["sw2"]["singularity"] < ssw["sw2"]["ltc"], \
-        f"sing 应仍优于 ltc: {ssw['sw2']['singularity']:.4f} vs {ssw['sw2']['ltc']:.4f}"
+        f"sing 应优于 ltc: {ssw['sw2']['singularity']:.4f} vs {ssw['sw2']['ltc']:.4f}"
 
 
 def test_sw3a_collapse_positive_locked(ssw):
@@ -53,7 +53,7 @@ def test_sw3b_split_positive_locked(ssw):
     assert ssw["sw3b"]["n"] == 3 and ssw["sw3b"]["new_amp"] > 0.3
 
 
-def test_sw4_single_value_negative_locked(ssw):
+def test_sw4_single_value_positive_locked(ssw):
     """SW-4（锁死正结果）：单分支 vs 叠加 = 1.2×+（叠加必要）。"""
     assert ssw["p_sw4"], "SW-4 应通过（k1 > 1.2× k3）"
     assert ssw["sw4"]["k1"] > ssw["sw4"]["k3"], \

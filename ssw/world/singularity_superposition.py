@@ -21,9 +21,11 @@ from collections import deque
 from tla.substrate.singularity_cell import SingularityCell
 from tla.substrate.singularity_substrate import SingularitySubstrate
 from tla.substrate.ltc_cell import LTCCell
+from ssw.env.event_world import RULES
 
 OBS_DIM = 2
 TARGET_DIM = 2
+RULE_BASE = [RULES[r][0] for r in ("fast", "mid", "slow")]   # [5, 10, 20]
 
 
 class SingularityClockBank:
@@ -44,13 +46,18 @@ class SingularityClockBank:
             for _ in range(n)
         ]
         self.h = torch.zeros(n)
-        self.feature_dim = n              # f = -ln(h+eps)/4.6（对数线性化特征）
+        self.f0 = None                     # 上次事件后的峰值特征（解析反演需 h0）
+        self.h0_h = None                   # 上次事件后的 h 空间峰值（均值反演用，稳健）
+        self.feature_dim = n               # f = -ln(h+eps)/4.6（对数线性化特征）
 
     def forward(self, obs):
         event = float(obs[0])
         for i, c in enumerate(self.cells):
             c.step(float(self.w[i]) * event)
             self.h[i] = c.h
+        if event > 0.5:
+            self.f0 = self.features().clone()   # 事件 tick：记录本事件后的峰值特征
+            self.h0_h = self.h.clone()          # h 空间峰值（均值反演用）
         return self.features()
 
     def features(self):
@@ -63,6 +70,8 @@ class SingularityClockBank:
         for c in self.cells:
             c.reset(c.ghost())
         self.h = torch.tensor([c.h for c in self.cells], dtype=torch.float32)
+        self.f0 = None
+        self.h0_h = None
 
 
 class LTCRecencyBank:
@@ -102,24 +111,54 @@ def make_substrate(kind, hidden=16, seed=0, **kw):
     raise ValueError(kind)
 
 
+def make_opt(module, lr=1e-3, interval_lr=0.1):
+    """AdamW 参数分组：analytic 头的 interval 标量梯度被 /t_norm 稀释（~0.024/步），
+    但 Adam 步长≈lr（梯度已归一化），lr 太大 → 目标附近振荡（0.5 实测振荡 ±0.5、
+    SW-1 时间误差 ±0.02）；interval_lr=0.1 折中：振荡 ±0.1（时间误差 ±0.004，
+    SW-1 余量充足）且分裂新分支 10→20 在 ~150 步内可达（0.05 实测 231 步不足，
+    SW-3b 新分支振幅 0.259 < 0.3）。每组存 base_lr 供可塑性门控缩放（gated 模式）。"""
+    main = [p for n, p in module.named_parameters() if "interval" not in n]
+    iv = [p for n, p in module.named_parameters() if "interval" in n]
+    groups = [{"params": main, "lr": lr, "base_lr": lr}]
+    if iv:
+        groups.append({"params": iv, "lr": interval_lr, "base_lr": interval_lr})
+    return torch.optim.AdamW(groups)
+
+
 class ScheduleBranch(nn.Module):
     """一个"日程专家"分支：基板状态 + 读出头 → [下一事件概率, 归一化 time_to_next]。
-    读出头输入 [h, obs]（无状态基板：仅 [obs]）。"""
+    读出头输入 [h, obs]（无状态基板：仅 [obs]）。
+    head_kind="mlp"：自由形式 MLP（LTC/无状态）。
+    head_kind="analytic"：奇点解析反演读出头——状态 f 可精确反演为"距上次事件 tick"
+    （指数衰减 → 解析可逆，奇点结构优势显式化；LTC 泄漏积分不可解析反演，只能学）。
+    解析头唯一可学参数 = 分支间隔 I_i（标量，分裂时新分支可学新间隔）。"""
 
-    def __init__(self, substrate, obs_dim=OBS_DIM,
-                 head_hidden=32, seed=0):
+    def __init__(self, substrate, obs_dim=OBS_DIM, head_hidden=32, seed=0,
+                 head_kind="mlp", interval_init=10.0, t_norm=25.0):
         super().__init__()
         self.substrate = substrate
+        self.head_kind = head_kind
+        self.t_norm = t_norm
         g = torch.Generator().manual_seed(seed)
-        in_dim = (substrate.feature_dim if substrate is not None else 0) + obs_dim
-        self.head = nn.Sequential(
-            nn.Linear(in_dim, head_hidden), nn.Tanh(),
-            nn.Linear(head_hidden, TARGET_DIM))
-        for p in self.head.parameters():
-            if p.dim() >= 2:
-                nn.init.xavier_uniform_(p, generator=g)
-            else:
-                nn.init.zeros_(p)
+        if head_kind == "analytic":
+            # 解析反演：f = -ln(h+eps)/4.6 → h = e^{-4.6f} - eps；
+            # h(t) = h* + (h0-h*)e^{-λt} → k̂ = -(1/λ)ln((h-h*)/(h0-h*))
+            # time = (I_i - k̂)/t_norm；next_event = σ((k̂ - I_i + 1)·5)（soft 阈值）
+            self.interval = nn.Parameter(torch.tensor(float(interval_init)))
+            self.register_buffer("lam", torch.tensor(0.08))
+            self.register_buffer("h_star", torch.tensor(1e-3 / 0.08))
+            self.register_buffer("eps_f", torch.tensor(1e-4))
+            self.head = None
+        else:
+            in_dim = (substrate.feature_dim if substrate is not None else 0) + obs_dim
+            self.head = nn.Sequential(
+                nn.Linear(in_dim, head_hidden), nn.Tanh(),
+                nn.Linear(head_hidden, TARGET_DIM))
+            for p in self.head.parameters():
+                if p.dim() >= 2:
+                    nn.init.xavier_uniform_(p, generator=g)
+                else:
+                    nn.init.zeros_(p)
         self.state = None
 
     def reset(self):
@@ -129,6 +168,21 @@ class ScheduleBranch(nn.Module):
 
     def readout(self, obs):
         """用当前状态读出头（不推进状态）。状态 None → 基板初始特征。"""
+        if self.head_kind == "analytic":
+            # 均值状态反演（稳健）：h̄ = mean(h)，h̄0 = mean(h0_h)（事件峰值），
+            # k̂ = -(1/λ)ln((h̄-h*)/(h̄0-h*))。逐细胞反演再平均有偏（低增益细胞
+            # h0-h* 极小 → k̂ 爆炸），均值状态反演与探针一致（slow 区间 20±5）。
+            if self.substrate.h0_h is None:
+                k = torch.zeros(())
+            else:
+                h_bar = self.substrate.h.mean()
+                h0_bar = self.substrate.h0_h.mean()
+                num = (h_bar - self.h_star).clamp(min=1e-9)
+                den = (h0_bar - self.h_star).clamp(min=1e-9)
+                k = (-(torch.log(num / den)) / self.lam).clamp(min=0.0)
+            time = ((self.interval - k) / self.t_norm).clamp(0.0, 1.0)
+            nxt = torch.sigmoid((k - self.interval + 1.0) * 5.0)
+            return torch.stack([nxt, time])
         if self.substrate is not None:
             h = self.state if self.state is not None else self.substrate.features()
             return self.head(torch.cat([h, obs]))
@@ -148,8 +202,12 @@ class SSWModel(nn.Module):
     """奇点-薛定谔叠加世界模型。"""
 
     def __init__(self, substrate_kind="singularity", n_branches=3,
-                 max_branches=5, temp=0.02, seed=0, hidden=16, head_hidden=64):
-        """temp=0.02（2026-08-11 标定）：坍缩误差是归一化 time MSE（量级 0.005-0.16），
+                 max_branches=5, temp=0.02, seed=0, hidden=16, head_hidden=64,
+                 head_kind="mlp", plasticity="uniform"):
+        """head_kind="mlp" 默认（LTC/无状态）；"analytic" 仅奇点（解析反演读出头）。
+        plasticity="uniform"（默认全可塑）| "gated"（可塑性门控：η_i = η·(1−amp_i)——
+        非主导分支保持可塑朝新规则漂移、主导分支提交防遗忘，SW-5 实验）。
+        temp=0.02（2026-08-11 标定）：坍缩误差是归一化 time MSE（量级 0.005-0.16），
         原 temp=1.0 的 softmax(−err) 几乎平坦（振幅≈1/3，坍缩不集中——实测
         fast 数据上正确分支仅 0.36）；temp=0.02 使正确/错误分支 logit 差 ~2 → 收敛
         （0.85/0.14/0.00）。判据未改，此为坍缩温度标定。"""
@@ -160,18 +218,22 @@ class SSWModel(nn.Module):
         self.seed = seed
         self.hidden = hidden
         self.head_hidden = head_hidden
+        self.head_kind = head_kind
+        self.plasticity = plasticity
         self.branches = nn.ModuleList([
             ScheduleBranch(make_substrate(substrate_kind, hidden=hidden,
                                           seed=seed + 100 * i),
                            head_hidden=head_hidden,
-                           seed=seed + 1000 * i)
+                           seed=seed + 1000 * i,
+                           head_kind=head_kind,
+                           interval_init=RULE_BASE[i] if head_kind == "analytic" else 10.0)
             for i in range(n_branches)
         ])
         self.amps = torch.ones(n_branches) / n_branches
         self.misses = torch.zeros(n_branches)
         self.err_hist = deque(maxlen=20)      # 最近坍缩的"最优分支误差"（分裂信号）
         self.last_entropy = float(np.log(n_branches))
-        self.opt = torch.optim.AdamW(self.parameters(), lr=1e-3)
+        self.opt = make_opt(self)
 
     # ---- 预测/坍缩 ----
     def branch_errors(self, obs, target):
@@ -212,8 +274,9 @@ class SSWModel(nn.Module):
         return out
 
     def train_step(self, obs, target):
-        """一步在线训练（振幅加权损失；advance→readout→loss→backward）。"""
-        self.opt.zero_grad()
+        """一步在线训练（振幅加权损失；advance→readout→loss→backward）。
+        plasticity="gated"：逐分支学习率 η_i = η·(1−amp_i)（非主导分支可塑、
+        主导分支提交）——用分支级优化器组实现（SW-5 实验）。"""
         for b in self.branches:
             b.advance(obs)
         preds = [b.readout(obs) for b in self.branches]
@@ -222,8 +285,24 @@ class SSWModel(nn.Module):
             loss = torch.mean((preds[i] - target) ** 2)
             total = total + self.amps[i] * loss
         total.backward()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
-        self.opt.step()
+        if self.plasticity == "gated":
+            # 逐分支更新：η_i = base_lr·(1−amp_i)（非主导可塑、主导提交）
+            for i, b in enumerate(self.branches):
+                gate = 1.0 - float(self.amps[i])
+                if gate <= 1e-3 or not any(
+                        p.grad is not None and p.grad.abs().sum() > 0
+                        for p in b.parameters()):
+                    continue
+                if not hasattr(b, "_opt") or b._opt is None:
+                    b._opt = make_opt(b)
+                for g in b._opt.param_groups:
+                    g["lr"] = g["base_lr"] * gate
+                b._opt.step()
+            self.opt.zero_grad(set_to_none=True)
+        else:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
+            self.opt.step()
+            self.opt.zero_grad(set_to_none=True)
         return total.item()
 
     # ---- 生长 ----
@@ -249,15 +328,17 @@ class SSWModel(nn.Module):
         child = ScheduleBranch(make_substrate(self.kind, hidden=self.hidden,
                                               seed=self.seed + 100 * len(self.branches)),
                                head_hidden=self.head_hidden,
-                               seed=self.seed + 1000 * len(self.branches))
-        child.load_state_dict(parent.state_dict())
+                               seed=self.seed + 1000 * len(self.branches),
+                               head_kind=self.head_kind,
+                               interval_init=10.0)
+        child.load_state_dict(parent.state_dict())   # 克隆（含 analytic 的 interval）
         with torch.no_grad():
             for p in child.parameters():
                 p.add_(torch.randn_like(p) * 0.05)
         self.branches.append(child)
         self.amps = torch.cat([self.amps, torch.tensor([0.1])])
         self.misses = torch.cat([self.misses, torch.zeros(1)])
-        self.opt = torch.optim.AdamW(self.parameters(), lr=1e-3)
+        self.opt = make_opt(self)
         return True
 
     def reset(self):
@@ -278,26 +359,38 @@ def calibrate_schedule(model, world, rule_idx, rule, n_ep=20, T=60,
     epochs=4：实测 2 欠训（sing≈ff）、8+ 过拟合训练噪声（校准预算，非判据）。"""
     torch.manual_seed(seed)
     eps = world.episodes(n=n_ep, T=T, rule=rule, seed_shift=seed)
-    opt = torch.optim.AdamW(model.branches[rule_idx].parameters(), lr=1e-3)
+    opt = make_opt(model.branches[rule_idx])
     target_branch = model.branches[rule_idx]
+    # 时间解码只训练/评估"首事件后"的衰减相（时钟已启动才有时间证据；
+    # 首事件前的相位对所有基板不可知——无事件=无时钟，2026-08-11 统一披露）
     for _ in range(epochs):
         for obs_seq, tgt_seq in eps:
             target_branch.reset()
+            started = False
             for o, t in zip(obs_seq, tgt_seq):
+                if float(o[0]) > 0.5:
+                    started = True
+                if not started:
+                    continue
                 opt.zero_grad()
                 p = target_branch(o)
                 loss = torch.mean((p - t) ** 2)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(target_branch.parameters(), 1.0)
                 opt.step()
-    # 评估：该分支在 rule 的未见 episode 上的 time 预测 MSE
+    # 评估：该分支在 rule 的未见 episode 上的 time 预测 MSE（仅首事件后）
     test = world.episodes(n=4, T=T, rule=rule, seed_shift=seed + 77)
     mse = 0.0
     cnt = 0
     with torch.no_grad():
         for obs_seq, tgt_seq in test:
             target_branch.reset()
+            started = False
             for o, t in zip(obs_seq, tgt_seq):
+                if float(o[0]) > 0.5:
+                    started = True
+                if not started:
+                    continue
                 p = target_branch(o)
                 mse += float((p[1] - t[1]) ** 2)
                 cnt += 1

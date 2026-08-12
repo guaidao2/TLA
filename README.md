@@ -87,7 +87,7 @@ tla/
 ├── cognitive/          # PCN 层叠 / 摊销残差 PCN / 推理环 / 训练环 / Self_Slot / 工作记忆
 ├── meta/               # importance 长时窗 + 生长/修剪门
 ├── learning/           # CLS 重放（均匀抽样 + 上下文忠实）
-├── tasks/              # 有界阻尼弹簧世界模型（变频率 + 不规则 dt + drift 模式）
+├── tasks/              # 有界阻尼弹簧世界 + 2D 推力体世界（s,a→s'，含动作，重力任务序列）
 ├── criteria/           # 预注册判据 runner（run_criteria / ablation / calibration / lifelong / moe / pr1 / pr1_fallback / forgetting / settle_vs_bp / singularity）
 ├── model.py            # 组合体装配（带捷径）
 ├── model_pr1.py        # 原则一装配（摊销首猜 + 残差 + 双过程回退 + EWC）

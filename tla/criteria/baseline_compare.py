@@ -138,6 +138,23 @@ def n_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
+def run_sensitivity(seed=0, n_traj=16, T=24, epochs_list=(2, 5)):
+    """基线训练量敏感性（可复现）：基线给更多 epoch，看是否追上 TLA（排除'没训够'）。"""
+    world = ThrustCartWorld(g=1.0, seed=seed)
+    train = world.task(g=1.0, n=n_traj, T=T, seed_shift=1)
+    test = world.task(g=2.5, n=4, T=20, seed_shift=99)
+    out = {}
+    for ep in epochs_list:
+        row = {}
+        for name, cls in (("LSTM", LSTMWorldModel), ("NeuralODE", ODECell),
+                          ("SSM", SSMWorldModel)):
+            m = cls()
+            train_bp(m, train, epochs=ep, seed=seed)
+            row[name] = eval_bp(m, test)
+        out[ep] = row
+    return out
+
+
 def run(seed=0, verbose=True, n_traj=30, T=40, n_ep=2):
     world = ThrustCartWorld(g=1.0, seed=seed)
     train = world.task(g=1.0, n=n_traj, T=T, seed_shift=1)
@@ -164,9 +181,12 @@ def run(seed=0, verbose=True, n_traj=30, T=40, n_ep=2):
 
     # BC-1：TLA ≤ 每个基线 ×1.1
     p_bc1 = all(mse_tla <= r["mse"] * 1.1 for r in results.values())
-    # BC-2 披露
+    # BC-2 披露（含测试时计算不对称）
     disclosure = dict(tla_bp_free=True, baselines_bp=True,
-                      samples=n_traj * T * n_ep)
+                      samples=n_traj * T * n_ep,
+                      tla_settle_loop="TLA infer 含 settle 迭代（自适应深度，"
+                                     "测试时多步精化）；基线单次前向——"
+                                     "TLA 用了更多测试时算力，如实披露")
 
     out = dict(mse_tla=mse_tla, baselines=results, p_bc1=p_bc1,
                disclosure=disclosure)

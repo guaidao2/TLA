@@ -478,7 +478,9 @@ tank-battle/                      # 工作区根
   ODE 0.247，全部仍差于 TLA（~0.09）。
 - **诚实标注**：TLA 含摊销线性捷径（W_base），基线无捷径——赢的方向可能部分来自捷径
   归纳偏置（架构价值 vs 捷径价值需后续消融）；参数量同量级（TLA ~700 vs LSTM 3772/
-  ODE 1088/SSM 320）；范式不对称（无 BP vs BP）如实披露。
+  ODE 1088/SSM 320）；范式不对称（无 BP vs BP）如实披露；**测试时计算不对称**：TLA
+  infer 含 settle 迭代（自适应深度、测试时多步精化），基线单次前向——TLA 用了更多
+  测试时算力（终审补充披露）；敏感性已入 runner 可复现（run_sensitivity）。
 - 测试：tests/test_baseline_compare.py（3 项：BC-1 持平 + 显著赢 + 披露存在）。
 
 ---

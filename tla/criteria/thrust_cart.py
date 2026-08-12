@@ -5,7 +5,8 @@
 
 判据（跑数前锁死）：
   TC-1 学习成立（无 BP）：未见重力（g 分布外）测试 MSE < 0.7×随机基线 且 < 恒等基线；
-  TC-2 动作条件化：恒推 a=(+1,+1) 与 a=(−1,−1) 下，模型预测的 vx' 均值必须显著不同
+  TC-2 动作条件化：恒推 a=(+1,+1) 与 a=(−1,−1) 下（配对：同一状态序列两种查询，
+     消除状态分布混淆——终审修正），模型预测的 vx' 均值必须显著不同
      （模型真正使用动作信息，而非只看状态）——|mean_vx'_p1 − mean_vx'_m1| > 0.05；
   TC-3 防遗忘：A(g=1.0) → B(g=2.0) 任务序列，EWC 保留率 ≥ 0.95（A 测试集）。
 判据锁死：跑数后任何裁决不得篡改，只许改代码。
@@ -25,23 +26,26 @@ def eval_mse(model, trajs):
     return float(torch.tensor(mses).mean().item()) if mses else float("nan")
 
 
-def eval_mean_vx(model, trajs, act):
-    """恒推 act 下预测的 vx' 均值（TC-2 动作条件化信号）。"""
-    vxs = []
+def eval_vx_paired(model, trajs):
+    """TC-2 配对动作条件化：同一状态序列上分别用恒推 +1 与 −1 查询，
+    对比预测 vx'——消除状态分布混淆（不同轨迹混入状态偏差）。"""
+    vx_p1, vx_m1 = [], []
     for traj in trajs:
         model.reset()
         for s, _, _ in traj:
-            pred, _ = model.infer(torch.cat([s, torch.tensor(act, dtype=torch.float32)]))
-            vxs.append(pred[2].item())
-    return float(torch.tensor(vxs).mean().item())
+            p1 = model.infer(torch.cat([s, torch.tensor((1.0, 1.0))]))[0][2].item()
+            m1 = model.infer(torch.cat([s, torch.tensor((-1.0, -1.0))]))[0][2].item()
+            vx_p1.append(p1)
+            vx_m1.append(m1)
+    return float(torch.tensor(vx_p1).mean().item()), \
+        float(torch.tensor(vx_m1).mean().item())
 
 
 def run(seed=0, verbose=True, n_traj=30, T=40, n_ep=2):
     world = ThrustCartWorld(g=1.0, seed=seed)
     train = world.task(g=1.0, n=n_traj, T=T, seed_shift=1)
     test_other_g = world.task(g=2.5, n=4, T=20, seed_shift=99)   # 未见重力
-    test_act_p1 = world.task(g=1.0, n=4, T=20, seed_shift=7)
-    test_act_m1 = world.task(g=1.0, n=4, T=20, seed_shift=8)
+    test_pair = world.task(g=1.0, n=4, T=20, seed_shift=7)      # TC-2 配对（同一状态序列）
 
     m = TLAPR1Model(obs_dim=6, out_dim=4, seed=seed)
     # 随机基线
@@ -59,9 +63,8 @@ def run(seed=0, verbose=True, n_traj=30, T=40, n_ep=2):
     mse_g = eval_mse(m, test_other_g)
     p_tc1 = mse_g < 0.7 * mse_rand and mse_g < mse_id
 
-    # TC-2 动作条件化
-    vx_p1 = eval_mean_vx(m, test_act_p1, (1.0, 1.0))
-    vx_m1 = eval_mean_vx(m, test_act_m1, (-1.0, -1.0))
+    # TC-2 动作条件化（配对：同一状态序列，两种恒推查询——消除状态分布混淆）
+    vx_p1, vx_m1 = eval_vx_paired(m, test_pair)
     p_tc2 = abs(vx_p1 - vx_m1) > 0.05
 
     # TC-3 防遗忘（重力任务序列 + EWC）

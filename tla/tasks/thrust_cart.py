@@ -34,7 +34,7 @@ class ThrustCartWorld:
         # 速度更新（含重力，clamp 有界）
         vx1 = min(max(vx + ax * self.dt, -self.vmax), self.vmax)
         vy1 = min(max(vy + (ay - self.g) * self.dt, -self.vmax), self.vmax)
-        # 位置更新 + 边界反弹（restitution）
+        # 位置更新 + 边界反弹（restitution；反弹后速度再 clamp，防 restitution>1 发散）
         x1 = x + vx1 * self.dt
         y1 = y + vy1 * self.dt
         lo, hi = self.bbox
@@ -46,10 +46,14 @@ class ThrustCartWorld:
             y1, vy1 = 2 * lo - y1, -vy1 * self.restitution
         elif y1 > hi:
             y1, vy1 = 2 * hi - y1, -vy1 * self.restitution
+        vx1 = min(max(vx1, -self.vmax), self.vmax)
+        vy1 = min(max(vy1, -self.vmax), self.vmax)
         return torch.tensor([x1, y1, vx1, vy1], dtype=torch.float32)
 
     def trajectory(self, T=40, act_mode="random", fixed_act=None):
         """返回 [(s_t, a_t, s_{t+1})]（T 个样本）。act_mode: random | fixed。"""
+        assert not (act_mode == "fixed" and fixed_act is None), \
+            "act_mode='fixed' 必须提供 fixed_act"
         s = torch.tensor(
             [self._u(self.bbox[0], self.bbox[1]),
              self._u(self.bbox[0], self.bbox[1]),

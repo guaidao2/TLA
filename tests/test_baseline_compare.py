@@ -37,8 +37,7 @@ def test_bc1_tla_wins_each_baseline(bc):
 def test_bc2_disclosure_present(bc):
     """BC-2：公平性披露存在（TLA 无 BP vs 基线 BP + 参数量 + settle 循环不对称）。"""
     assert bc["disclosure"]["tla_bp_free"] and bc["disclosure"]["baselines_bp"]
-    assert "settle" in bc["disclosure"]["tla_settle_loop"] or \
-        "settle" in str(bc["disclosure"])
+    assert "settle" in bc["disclosure"]["tla_settle_loop"]
     for r in bc["baselines"].values():
         assert r["params"] > 0
 
@@ -59,6 +58,8 @@ def test_sensitivity_reproducible():
             for s, a, s_next in traj:
                 m.train_step(torch.cat([s, a]), s_next)
     mse_tla = bc_mod.eval_tla(m, test)
-    # 基线 5 epoch 仍应差于 TLA 2 epoch
+    # 基线 5 epoch 仍应显著差于 TLA 2 epoch（≤0.95× 余量；轻尺度实测：
+    # 基线 5 epoch MSE ≈ LSTM 0.16/ODE 0.25/SSM 0.35 vs TLA ~0.10，余量 ~1.5×+）
     for name, mse in sens[5].items():
-        assert mse_tla < mse, f"TLA 应仍优于 {name}@5epoch: TLA={mse_tla:.4f} {name}={mse:.4f}"
+        assert mse_tla <= 0.95 * mse, \
+            f"TLA 应仍显著优于 {name}@5epoch: TLA={mse_tla:.4f} {name}={mse:.4f}"

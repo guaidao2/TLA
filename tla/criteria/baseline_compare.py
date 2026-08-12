@@ -139,7 +139,9 @@ def n_params(model):
 
 
 def run_sensitivity(seed=0, n_traj=16, T=24, epochs_list=(2, 5)):
-    """基线训练量敏感性（可复现）：基线给更多 epoch，看是否追上 TLA（排除'没训够'）。"""
+    """基线训练量敏感性（可复现）：基线给更多 epoch，看是否追上 TLA（排除'没训够'）。
+    构造基线前先 seed——初始化确定性不依赖环境全局 RNG（终审修正）。"""
+    torch.manual_seed(seed)
     world = ThrustCartWorld(g=1.0, seed=seed)
     train = world.task(g=1.0, n=n_traj, T=T, seed_shift=1)
     test = world.task(g=2.5, n=4, T=20, seed_shift=99)
